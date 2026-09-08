@@ -204,8 +204,9 @@ swallowed. A construct Downright cannot render must still be visible and editabl
   newline presence, and BOM. Writes are atomic.
 - Detects external modification (a file changed by an LLM tool, a script, or git) and
   offers to reload; reloads silently if the document is unmodified in-app.
-- Opening a path that does not exist creates an untitled-but-named buffer; the first save
-  goes through a save panel (sandbox requirement, §10).
+- Opening a path that does not exist: the CLI shim creates the empty file before handing
+  it to the app (§10), so the app only ever opens files that exist. From the Open dialog
+  this case cannot arise.
 - No indexing of surrounding directories. No sidebar in v1 (see OQ-3).
 
 ## 10. Command line interface
@@ -219,7 +220,7 @@ downright [OPTIONS] [FILE...]
   *not* suitable as `$EDITOR`/`$GIT_EDITOR` — documented as such.
 - Multiple files open multiple windows.
 - Relative paths resolve against the shell's working directory.
-- A nonexistent path opens a new named buffer (§9).
+- A nonexistent path is created as an empty file by the shim, then opened normally.
 - `-n, --new` opens a new empty untitled document.
 - `-v, --version`, `-h, --help`.
 - Stdin (`... | downright -`) is **out of scope for v1**; see OQ-4.
@@ -228,10 +229,11 @@ downright [OPTIONS] [FILE...]
   distributed separately as a Homebrew formula (`brew install downright-cli`), with a
   first-run screen in the app showing the exact command for anyone not using Homebrew. The
   shim is a few lines of shell; it launches the app through Launch Services and exits.
-- **A nonexistent path** opens an untitled buffer pre-named with the intended filename; the
-  first save routes through a save panel, which is what grants the sandbox write access to
-  that location. This is slightly less seamless than an unsandboxed build would be, and is
-  an accepted cost of App Store distribution.
+- **A nonexistent path** is handled by the shim, not the app: the shim runs unsandboxed in
+  the user's shell, so it `touch`es the file and then opens it through Launch Services like
+  any other. The app receives an ordinary, existing, sandbox-granted file and autosave takes
+  it from there — no save panel, no untitled-buffer special case. Accepted cost: abandoning
+  `downright new.md` without typing leaves a 0-byte file behind. (Plan decision D3.)
 
 ## 11. Appearance
 
@@ -266,11 +268,12 @@ have to think about.
 | ~~**M0**~~ | ✅ **Complete** (2026-09-08) — concealment mechanism proven; see `M0-FINDINGS.md` |
 | **M1** | Walking skeleton: document app, open/save/autosave, plain-text editing, CLI shim. **Starts with the sandbox/Launch Services validation (TRD R6).** |
 | **M2** | Core hybrid: headings, emphasis, inline code, links, lists, quotes, thematic breaks |
+| **v0** | **First daily-use build.** M1 + M2 + fenced code blocks and clickable task checkboxes, sandboxed and dev-signed, not submitted. Scope and phases in `../03-Plan/v0-plan.md`. |
 | **M3** | Blocks: fenced code with syntax highlighting, task lists, images, frontmatter |
 | **M4** | Tables, footnotes, dialect profiles and auto-detection |
 | **M5** | Polish: themes, preferences, find/replace, accessibility, notarized distribution |
 
-M2 is the first internally usable build; M5 is the first shareable one.
+v0 is the first daily-use build; M5 is the first shareable one.
 
 ## 14. Open questions
 

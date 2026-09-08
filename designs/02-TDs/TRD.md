@@ -157,6 +157,16 @@ decoration layer's own bookkeeping, and render them with a ~0 pt font (plus a cl
 foreground colour). Content characters carry their real styling. Because the reveal rule
 (PRD §7.1) is paragraph-scoped, reveal state is simply a per-paragraph input to this hook.
 
+**The invariant is character *count*, not character *identity*.** Replacing a character with
+a different single character is permitted — `-` → `•` for bullets, `[ ]` → `☐` plus two
+concealed characters for a checkbox — because the layout manager's position arithmetic only
+depends on length, and `NSTextView.string` and copy read from the backing store, so the
+substituted glyph never leaks into the clipboard. Two constraints apply: the substitute must
+be a single UTF-16 code unit with no combining behaviour (zero-width space failed precisely
+because it forms grapheme clusters with its neighbours, §6.3), and the decoration layer must
+assert `display.length == source.length` in debug builds on every paragraph it produces.
+(Plan decision D4.)
+
 Measured behaviour: markers contribute no measurable width (a `Some **bold** text here.`
 line renders 127.5 pt against a 149.8 pt unconcealed baseline), soft wrapping is unaffected,
 and the backing store stays pristine.
@@ -310,7 +320,7 @@ App Store:
 | Consequence | Effect | Mitigation |
 |---|---|---|
 | Sibling files are not granted | Relative-path images (`![](img/a.png)`) fail to load: access is granted for the *document*, not its directory | Detect the denial and offer a one-time "grant access to this folder" `NSOpenPanel`, persisted as a security-scoped bookmark |
-| Nonexistent paths cannot be opened | `downright new-file.md` cannot silently create the file | Open an untitled buffer pre-filled with the intended name; first save routes through a save panel that grants the location |
+| Nonexistent paths cannot be opened | Launch Services cannot grant a file that does not exist | The shim, which runs unsandboxed in the shell, `touch`es the file first and then opens it normally (plan decision D3). The app never sees this case |
 | Atomic external rewrites may revoke access | Sandbox extensions are path-based; an external tool that writes-temp-then-renames can invalidate the grant — and LLM tooling writes atomically, so this is the *common* case, not an edge case | Re-acquire via bookmark on write failure; verify behaviour in M1 |
 | No Homebrew cask, no direct download | Update cadence and beta distribution are bound to App Review | TestFlight for macOS covers betas |
 
