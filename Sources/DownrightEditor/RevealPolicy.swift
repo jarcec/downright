@@ -6,7 +6,9 @@ public enum RevealPolicy {
     /// Source ranges (paragraph-aligned, merged, sorted) to display as raw source.
     ///
     /// 1. Every paragraph (source line) intersecting a selection reveals.
-    /// 2. A revealed line inside a fenced code block or table reveals the whole construct.
+    /// 2. A revealed line inside a fenced code block reveals the whole block. Tables are the
+    ///    exception to reveal: their structure never reveals, only the caret's cell (handled
+    ///    by the decoration layer), so they are not widened here.
     public static func revealedRanges(selections: [NSRange], document: Document, lines: LineIndex) -> [NSRange] {
         var out: [NSRange] = []
         for sel in selections {
@@ -20,7 +22,7 @@ public enum RevealPolicy {
                 let loc = lines.lineStarts[line]
                 for block in document.path(containing: loc) {
                     switch block.kind {
-                    case .fencedCode, .table:
+                    case .fencedCode:
                         start = min(start, block.range.location)
                         end = max(end, block.range.end)
                     default: break

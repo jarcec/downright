@@ -86,7 +86,7 @@ final class BlockParser {
         }
         closeAll(root)
         let blocks = root.children.flatMap { convert($0) }
-        return Document(blocks: blocks, length: buf.count, references: references)
+        return Document(blocks: blocks, length: buf.count, references: references, sourceString: String(utf16CodeUnits: buf, count: buf.count))
     }
 
     // MARK: - Frontmatter

@@ -9,6 +9,7 @@ final class DecoratedLayoutFragment: NSTextLayoutFragment {
         case codeBlock(info: String, top: Bool, bottom: Bool)
         case rule
         case frontmatter(top: Bool, bottom: Bool)
+        case table(boundaries: [CGFloat], header: Bool, top: Bool, bottom: Bool)
     }
 
     var appearance: Appearance = .plain
@@ -41,10 +42,21 @@ final class DecoratedLayoutFragment: NSTextLayoutFragment {
         return b
     }
 
+    /// Height of the text lines proper. The document's final paragraph carries an extra
+    /// empty line fragment (the caret slot after the trailing newline); block decorations
+    /// must not paint it, or the last table row / code line grows a phantom row.
+    private var contentHeight: CGFloat {
+        var h = super.layoutFragmentFrame.height
+        if textLineFragments.count > 1, let last = textLineFragments.last, last.characterRange.length == 0 {
+            h -= last.typographicBounds.height
+        }
+        return h
+    }
+
     override func draw(at point: CGPoint, in context: CGContext) {
         if appearance == .hidden { return }
         let width = columnWidth
-        let height = super.layoutFragmentFrame.height
+        let height = contentHeight
         let lineRect = CGRect(x: point.x - indentOffset, y: point.y, width: width, height: height)
 
         context.saveGState()
@@ -68,6 +80,21 @@ final class DecoratedLayoutFragment: NSTextLayoutFragment {
             context.setFillColor(theme.rule.cgColor)
             let mid = point.y + layoutFragmentFrame.height / 2
             context.fill(CGRect(x: lineRect.minX, y: mid - 0.5, width: width, height: 1))
+        case .table(let boundaries, let header, let top, let bottom):
+            guard let first = boundaries.first, let last = boundaries.last else { break }
+            let x0 = lineRect.minX + first, x1 = lineRect.minX + last
+            if header {
+                context.setFillColor(theme.codeBlockBackground.cgColor)
+                context.fill(CGRect(x: x0, y: lineRect.minY, width: x1 - x0, height: height))
+            }
+            context.setFillColor(theme.rule.cgColor)
+            for b in boundaries {
+                context.fill(CGRect(x: lineRect.minX + b - 0.5, y: lineRect.minY, width: 1, height: height))
+            }
+            if top { context.fill(CGRect(x: x0, y: lineRect.minY, width: x1 - x0, height: 1)) }
+            let thickness: CGFloat = header ? 1.5 : 1
+            context.fill(CGRect(x: x0, y: lineRect.maxY - thickness, width: x1 - x0, height: thickness))
+            _ = bottom
         }
         if quoteDepth > 0 {
             context.setFillColor(theme.quoteBar.cgColor)

@@ -9,11 +9,14 @@ public struct Document: Sendable {
     public var length: Int
     /// Link reference definitions: normalised (lower-cased) label → destination.
     public var references: [String: String]
+    /// The source this document was parsed from (needed by renderers that measure text).
+    public var sourceString: String
 
-    public init(blocks: [Block], length: Int, references: [String: String] = [:]) {
+    public init(blocks: [Block], length: Int, references: [String: String] = [:], sourceString: String = "") {
         self.blocks = blocks
         self.length = length
         self.references = references
+        self.sourceString = sourceString
     }
 }
 

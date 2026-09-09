@@ -9,7 +9,10 @@ public final class DecorationEngine {
     public let lines: LineIndex
     public let theme: Theme
     private var cache: [Int: ParagraphDecoration] = [:]
+    private var tableLayouts: [Int: TableLayout] = [:]
     private let spaceWidth: CGFloat
+    /// Horizontal padding on each side of a cell's text.
+    static let cellGutter: CGFloat = 10
 
     public init(document: Document, lines: LineIndex, theme: Theme) {
         self.document = document
@@ -151,10 +154,8 @@ public final class DecorationEngine {
             d.styles.append(StyleRun(pr, .font(theme.monoFont)))
             d.styles.append(StyleRun(pr, .foreground(theme.secondaryColor)))
 
-        case .table:
-            d.role = .tableRow
-            d.styles.append(StyleRun(pr, .font(theme.monoFont)))
-            d.lineHeightMultiple = 1.2
+        case .table(let table):
+            tableRow(table, block: leaf, line: li, pr: pr, cr: cr, into: &d)
 
         case .frontmatter:
             d.role = .frontmatter(first: li == firstLine, last: li == lastLine)
@@ -175,6 +176,10 @@ public final class DecorationEngine {
     }
 
     private func inlineStyles(_ block: Block, cr: NSRange, into d: inout ParagraphDecoration) {
+        inlineStyles(block.inlines, cr: cr, into: &d)
+    }
+
+    private func inlineStyles(_ inlines: [Inline], cr: NSRange, into d: inout ParagraphDecoration) {
         func walk(_ nodes: [Inline]) {
             for n in nodes {
                 guard NSIntersectionRange(n.range, cr).length > 0 else { continue }
@@ -210,7 +215,99 @@ public final class DecorationEngine {
                 walk(n.children)
             }
         }
-        walk(block.inlines)
+        walk(inlines)
+    }
+
+    // MARK: - Tables
+
+    struct TableLayout {
+        var columnWidths: [CGFloat]
+        /// Column rule positions relative to the paragraph's left edge; `count == columns + 1`.
+        var boundaries: [CGFloat]
+    }
+
+    /// Column widths from the widest rendered cell in each column (markers concealed).
+    private func tableLayout(for table: Table, blockStart: Int) -> TableLayout {
+        if let hit = tableLayouts[blockStart] { return hit }
+        let columns = table.allRows.map(\.cells.count).max() ?? 0
+        var widths = [CGFloat](repeating: 24, count: columns)
+        for (ri, row) in table.allRows.enumerated() {
+            for (ci, cell) in row.cells.enumerated() where ci < columns {
+                widths[ci] = max(widths[ci], ceil(measure(cell, header: ri == 0)))
+            }
+        }
+        var boundaries: [CGFloat] = [0]
+        for w in widths { boundaries.append(boundaries.last! + w + 2 * Self.cellGutter) }
+        let layout = TableLayout(columnWidths: widths, boundaries: boundaries)
+        tableLayouts[blockStart] = layout
+        return layout
+    }
+
+    /// Rendered width of a cell: its inline styles applied, markers concealed.
+    private func measure(_ cell: TableCell, header: Bool) -> CGFloat {
+        guard cell.range.length > 0 else { return 0 }
+        let source = (document.sourceString as NSString).substring(with: cell.range)
+        let out = NSMutableAttributedString(string: source, attributes: [.font: header ? theme.bodyFont.adding(.bold) : theme.bodyFont])
+        var d = ParagraphDecoration()
+        inlineStyles(cell.inlines, cr: cell.range, into: &d)
+        for run in d.styles { MarkdownContentStorageDelegate.apply(run, to: out, base: cell.range) }
+        for r in d.conceal {
+            if let rel = MarkdownContentStorageDelegate.relative(r, base: cell.range) {
+                out.addAttributes([.font: Theme.concealedFont], range: rel)
+            }
+        }
+        return out.size().width
+    }
+
+    private func tableRow(_ table: Table, block: Block, line li: Int, pr: NSRange, cr: NSRange, into d: inout ParagraphDecoration) {
+        d.lineHeightMultiple = 1.25
+        d.lineBreakMode = .byClipping
+        // Delimiter row: structure only, hidden.
+        if cr.location == table.delimiterRow.location {
+            d.role = .tableDelimiter
+            d.alwaysConceal.append(cr)
+            return
+        }
+        let rows = table.allRows
+        guard let rowIndex = rows.firstIndex(where: { $0.range.location == cr.location }) else { return }
+        let row = rows[rowIndex]
+        let isHeader = rowIndex == 0
+        let layout = tableLayout(for: table, blockStart: block.range.location)
+        let gutter = Self.cellGutter
+        d.role = .tableRow(boundaries: layout.boundaries, header: isHeader, first: isHeader, last: rowIndex == rows.count - 1)
+
+        // Cell text: bold header, inline styles, markers concealable per cell.
+        for cell in row.cells {
+            if isHeader { d.styles.append(StyleRun(cell.range, .traits(.bold))) }
+            inlineStyles(cell.inlines, cr: cell.range, into: &d)
+        }
+
+        // Padding per cell from its alignment.
+        func padding(_ ci: Int) -> (before: CGFloat, after: CGFloat) {
+            guard ci < row.cells.count, ci < layout.columnWidths.count else { return (0, 0) }
+            let extra = max(0, layout.columnWidths[ci] - ceil(measure(row.cells[ci], header: isHeader)))
+            let align = ci < table.alignments.count ? table.alignments[ci] : .none
+            switch align {
+            case .right: return (extra, 0)
+            case .center: return (floor(extra / 2), extra - floor(extra / 2))
+            default: return (0, extra)
+            }
+        }
+
+        // Separators never reveal; the last character of each carries the column padding.
+        for (i, sep) in row.separators.enumerated() {
+            if sep.length > 0 { d.alwaysConceal.append(sep) }
+            var kern: CGFloat = 0
+            if i > 0 { kern += padding(i - 1).after + gutter }
+            if i < row.cells.count { kern += gutter + padding(i).before }
+            if i == row.separators.count - 1 { continue }   // trailing: nothing follows
+            if sep.length > 0 {
+                d.styles.append(StyleRun(NSRange(location: sep.end - 1, length: 1), .kern(kern)))
+            } else if i == 0 {
+                d.firstLineHeadIndent += kern   // no leading pipe: pad with the indent instead
+                d.headIndent += kern
+            }
+        }
     }
 
     static func url(_ s: String) -> URL? {

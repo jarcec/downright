@@ -11,6 +11,8 @@ public enum StyleOp {
     case link(URL)
     case strikethrough
     case baselineOffset(CGFloat)
+    /// Extra advance after the glyph; tables use it on concealed separators to pad columns.
+    case kern(CGFloat)
 }
 
 public struct StyleRun {
@@ -31,7 +33,9 @@ public enum BlockRole: Equatable {
     case setextUnderline
     case thematicBreak
     case frontmatter(first: Bool, last: Bool)
-    case tableRow
+    /// `boundaries`: x positions of the column rules relative to the paragraph's left edge.
+    case tableRow(boundaries: [CGFloat], header: Bool, first: Bool, last: Bool)
+    case tableDelimiter
     case html
 }
 
@@ -43,6 +47,10 @@ public struct ParagraphDecoration {
     public var markerStyles: [StyleRun] = []
     /// Applied only when concealed. Absolute source ranges.
     public var conceal: [NSRange] = []
+    /// Concealed in *both* states: table structure (pipes) never reveals; only cell text does.
+    public var alwaysConceal: [NSRange] = []
+    /// Line breaking for the paragraph; tables clip instead of wrapping.
+    public var lineBreakMode: NSLineBreakMode = .byWordWrapping
     /// Applied only when concealed: same-length character substitutions (plan D4).
     public var substitutions: [(offset: Int, char: unichar)] = []
     /// Applied only when concealed, after substitutions (e.g. sizing a bullet glyph).

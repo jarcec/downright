@@ -40,7 +40,13 @@ public final class MarkdownContentStorageDelegate: NSObject, @preconcurrency NST
             }
         }
 
+        for r in d.alwaysConceal {
+            guard let rel = Self.relative(r, base: range) else { continue }
+            out.addAttributes([.font: Theme.concealedFont, .foregroundColor: Theme.concealedColor], range: rel)
+        }
+
         let ps = NSMutableParagraphStyle()
+        ps.lineBreakMode = d.lineBreakMode
         ps.lineHeightMultiple = d.lineHeightMultiple
         ps.headIndent = d.headIndent
         ps.firstLineHeadIndent = d.firstLineHeadIndent
@@ -75,6 +81,8 @@ public final class MarkdownContentStorageDelegate: NSObject, @preconcurrency NST
             out.addAttribute(.strikethroughStyle, value: NSUnderlineStyle.single.rawValue, range: rel)
         case .baselineOffset(let v):
             out.addAttribute(.baselineOffset, value: v, range: rel)
+        case .kern(let v):
+            out.addAttribute(.kern, value: v, range: rel)
         case .traits(let traits):
             out.enumerateAttribute(.font, in: rel) { value, r, _ in
                 let f = (value as? NSFont) ?? NSFont.systemFont(ofSize: NSFont.systemFontSize)

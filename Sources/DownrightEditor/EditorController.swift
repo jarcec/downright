@@ -402,8 +402,12 @@ public final class EditorController: NSObject, NSTextViewDelegate, @preconcurren
 
     private static func appearance(for role: BlockRole, revealed: Bool, at offset: Int, length: Int) -> DecoratedLayoutFragment.Appearance {
         switch role {
-        case .none, .heading, .html, .tableRow:
+        case .none, .heading, .html:
             return .plain
+        case .tableRow(let boundaries, let header, let first, let last):
+            return .table(boundaries: boundaries, header: header, top: first, bottom: last)
+        case .tableDelimiter:
+            return .hidden
         case .fenceOpen(let info):
             return revealed ? .codeBlock(info: info, top: true, bottom: false) : .hidden
         case .fenceClose:
