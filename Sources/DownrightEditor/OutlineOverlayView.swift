@@ -106,7 +106,7 @@ public final class OutlineOverlayView: NSVisualEffectView, NSTableViewDataSource
     public override func updateTrackingAreas() {
         super.updateTrackingAreas()
         if let t = hoverTracking { removeTrackingArea(t) }
-        let t = NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .cursorUpdate, .activeInKeyWindow, .inVisibleRect], owner: self, userInfo: nil)
+        let t = NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .mouseMoved, .cursorUpdate, .activeInKeyWindow, .inVisibleRect], owner: self, userInfo: nil)
         addTrackingArea(t)
         hoverTracking = t
     }
@@ -122,7 +122,10 @@ public final class OutlineOverlayView: NSVisualEffectView, NSTableViewDataSource
     }
 
     /// Headings behave like links: pointing hand over the rows, arrow over the header.
-    public override func cursorUpdate(with event: NSEvent) {
+    public override func cursorUpdate(with event: NSEvent) { setCursor(for: event) }
+    public override func mouseMoved(with event: NSEvent) { setCursor(for: event) }
+
+    private func setCursor(for event: NSEvent) {
         let p = convert(event.locationInWindow, from: nil)
         if !isCollapsed, scroll.frame.contains(p), table.row(at: table.convert(p, from: self)) >= 0 {
             NSCursor.pointingHand.set()

@@ -162,7 +162,16 @@ public final class MarkdownTextView: NSTextView {
         trackingArea = t
     }
 
+    /// Sibling views floating above the text (the outline). While the pointer is over one
+    /// of them the text view must not touch the cursor or show table handles.
+    public var overlayViews: [NSView] = []
+
+    private func pointerIsOverOverlay(_ event: NSEvent) -> Bool {
+        overlayViews.contains { !$0.isHidden && $0.window === window && $0.convert($0.bounds, to: nil).contains(event.locationInWindow) }
+    }
+
     public override func mouseMoved(with event: NSEvent) {
+        if pointerIsOverOverlay(event) { hideTableHandles(); return }   // NSTextView would re-set the I-beam
         super.mouseMoved(with: event)
         updateTableHandles(at: convert(event.locationInWindow, from: nil))
     }

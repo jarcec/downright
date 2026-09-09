@@ -98,6 +98,7 @@ final class DocumentWindowController: NSWindowController, NSWindowDelegate {
         }
 
         outline.onSelect = { [weak self] offset in self?.editor.scroll(to: offset) }
+        editor.textView.overlayViews = [outline]
         outline.isCollapsed = Settings.outlineCollapsed
         outline.onCollapsedChange = { Settings.outlineCollapsed = $0 }
         document.externalChangeWhileEdited = { [weak self] in self?.showExternalChangeNotice() }
