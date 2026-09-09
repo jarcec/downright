@@ -1,0 +1,118 @@
+#!/bin/sh
+# Build Downright from this checkout and install it to /Applications, plus the
+# `downright` shell command. Idempotent; re-run after pulling changes.
+#
+#   scripts/install.sh              build Release, install app + CLI, relaunch if it was running
+#   scripts/install.sh --test       run the Swift test suite first (aborts on failure)
+#   scripts/install.sh --clean      wipe the build directory first
+#   scripts/install.sh --force      SIGKILL a running app that refuses to quit (unsaved changes!)
+#   scripts/install.sh --open FILE  open FILE after installing
+#
+# Requirements: Xcode command-line tools; xcodegen (installed via Homebrew if missing).
+
+set -eu
+
+REPO=$(cd "$(dirname "$0")/.." && pwd)
+APP_DIR="$REPO/App"
+BUILD_DIR="$APP_DIR/build"
+PRODUCT="$BUILD_DIR/Build/Products/Release/Downright.app"
+DEST="/Applications/Downright.app"
+SHIM="$REPO/cli/downright"
+
+RUN_TESTS=0; CLEAN=0; FORCE=0; OPEN_FILE=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --test)  RUN_TESTS=1 ;;
+    --clean) CLEAN=1 ;;
+    --force) FORCE=1 ;;
+    --open)  shift; OPEN_FILE="${1:-}" ;;
+    -h|--help) sed -n '2,12p' "$0"; exit 0 ;;
+    *) echo "unknown option: $1" >&2; exit 1 ;;
+  esac
+  shift
+done
+
+step() { printf '\033[1;34m==>\033[0m %s\n' "$*"; }
+die()  { printf '\033[1;31merror:\033[0m %s\n' "$*" >&2; exit 1; }
+
+# ── Prerequisites ─────────────────────────────────────────────────────────────
+command -v xcodebuild >/dev/null || die "xcodebuild not found — install Xcode and run: sudo xcode-select -s /Applications/Xcode.app"
+if ! command -v xcodegen >/dev/null; then
+  command -v brew >/dev/null || die "xcodegen not found and Homebrew is not installed (brew install xcodegen)"
+  step "Installing xcodegen"
+  brew install xcodegen
+fi
+
+# ── Tests ─────────────────────────────────────────────────────────────────────
+if [ "$RUN_TESTS" = 1 ]; then
+  step "Running tests"
+  TEST_LOG=$(mktemp -t downright-test)
+  if (cd "$REPO" && swift test >"$TEST_LOG" 2>&1); then
+    grep -E "Executed .* tests" "$TEST_LOG" | tail -1
+    rm -f "$TEST_LOG"
+  else
+    grep -E "error:" "$TEST_LOG" | head -10 >&2
+    die "tests failed (full log: $TEST_LOG)"
+  fi
+fi
+
+# ── Build ─────────────────────────────────────────────────────────────────────
+[ "$CLEAN" = 1 ] && { step "Cleaning $BUILD_DIR"; rm -rf "$BUILD_DIR"; }
+step "Generating Xcode project"
+(cd "$APP_DIR" && xcodegen generate >/dev/null)
+step "Building Release"
+LOG=$(mktemp -t downright-build)
+if ! xcodebuild -project "$APP_DIR/Downright.xcodeproj" -scheme Downright -configuration Release \
+      -derivedDataPath "$BUILD_DIR" build >"$LOG" 2>&1; then
+  grep -E "error:" "$LOG" | head -20 >&2
+  die "build failed (full log: $LOG)"
+fi
+rm -f "$LOG"
+[ -d "$PRODUCT" ] || die "build product not found at $PRODUCT"
+
+# ── Quit the running app ──────────────────────────────────────────────────────
+WAS_RUNNING=0
+if pgrep -xq Downright; then
+  WAS_RUNNING=1
+  step "Asking Downright to quit"
+  osascript -e 'tell application "Downright" to quit' >/dev/null 2>&1 || true
+  i=0
+  while pgrep -xq Downright && [ $i -lt 20 ]; do sleep 0.25; i=$((i+1)); done
+  if pgrep -xq Downright; then
+    if [ "$FORCE" = 1 ]; then
+      step "Force-quitting Downright"
+      pkill -9 -x Downright; sleep 0.5
+    else
+      die "Downright is still running (unsaved changes?). Save or close it, or re-run with --force."
+    fi
+  fi
+fi
+
+# ── Install ───────────────────────────────────────────────────────────────────
+step "Installing to $DEST"
+rm -rf "$DEST"
+cp -R "$PRODUCT" "$DEST"
+
+# ── CLI shim ──────────────────────────────────────────────────────────────────
+for dir in /opt/homebrew/bin /usr/local/bin "$HOME/.local/bin" "$HOME/bin"; do
+  if [ -d "$dir" ] && [ -w "$dir" ]; then
+    ln -sf "$SHIM" "$dir/downright"
+    step "Linked $dir/downright"
+    case ":$PATH:" in *":$dir:"*) ;; *) echo "    note: $dir is not on your PATH" ;; esac
+    LINKED=1
+    break
+  fi
+done
+[ "${LINKED:-0}" = 1 ] || echo "    note: no writable bin directory found; link it yourself: ln -s $SHIM ~/bin/downright"
+
+# ── Relaunch ──────────────────────────────────────────────────────────────────
+if [ -n "$OPEN_FILE" ]; then
+  step "Opening $OPEN_FILE"
+  "$SHIM" "$OPEN_FILE"
+elif [ "$WAS_RUNNING" = 1 ]; then
+  step "Relaunching"
+  open -a "$DEST"
+fi
+
+VERSION=$(defaults read "$DEST/Contents/Info" CFBundleShortVersionString 2>/dev/null || echo "?")
+step "Installed Downright $VERSION ($(git -C "$REPO" rev-parse --short HEAD 2>/dev/null || echo 'no git'))"
