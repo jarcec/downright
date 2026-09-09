@@ -110,3 +110,37 @@ final class TableVimTests: XCTestCase {
         XCTAssertEqual(c.tableHit(at: c.textView.selectedRange().location)?.rowIndex, 0)
     }
 }
+
+@MainActor
+final class TableRowHeightTests: XCTestCase {
+    func testEmptyRowKeepsFullHeightAndColumnsStayAligned() {
+        let s = NSTextStorage(string: "| A | B |\n|---|---|\n| 1 | 2 |\n|     |     |\n| x | y |\n\ntail\n")
+        let c = EditorController(textStorage: s)
+        c.layoutManager.textContainer?.size = CGSize(width: 800, height: 1e7)
+        c.textView.setSelectedRange(NSRange(location: 0, length: 0))
+        var heights: [Int: CGFloat] = [:]
+        var secondCellX: [Int: CGFloat] = [:]
+        c.layoutManager.enumerateTextLayoutFragments(from: c.layoutManager.documentRange.location, options: [.ensuresLayout]) { f in
+            let loc = c.contentStorage.offset(from: c.contentStorage.documentRange.location, to: f.textElement!.elementRange!.location)
+            heights[loc] = f.layoutFragmentFrame.height
+            return true
+        }
+        let rowOffsets = [0, 20, 30, 44]   // header, "1", empty, "x"
+        let normal = heights[20]!
+        XCTAssertGreaterThan(normal, 15)
+        XCTAssertEqual(heights[30]!, normal, accuracy: 0.5, "an all-structure row must be as tall as a text row")
+        XCTAssertEqual(heights[44]!, normal, accuracy: 0.5)
+        // Second column still starts at the same x on every row (kern adjusted for the anchor glyph)
+        for off in rowOffsets {
+            guard let hit = c.tableHit(at: off), hit.row.cells.count > 1 else { continue }
+            let cell1 = hit.row.cells[1].range.location
+            secondCellX[off] = c.caretRect(at: cell1)?.minX
+        }
+        let xs = Array(secondCellX.values)
+        XCTAssertEqual(xs.count, 4)
+        for x in xs { XCTAssertEqual(x, xs[0], accuracy: 0.5, "column 2 misaligned: \(secondCellX)") }
+        // Caret inside the empty cell has full height
+        let emptyCell = c.tableHit(at: 32)!.row.cells[0].range.location
+        XCTAssertGreaterThan(c.caretRect(at: emptyCell)!.height, 15)
+    }
+}

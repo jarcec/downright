@@ -385,18 +385,35 @@ public final class DecorationEngine {
             }
         }
 
-        // Separators never reveal; the last character of each carries the column padding.
+        // Separators never reveal. Two roles inside each:
+        //  • the *last* character stays at body size but transparent, so a row made only of
+        //    structure (a freshly inserted empty row) keeps a full line height and a
+        //    full-size caret instead of collapsing to the concealed font's height;
+        //  • the *first* character carries the column padding as kern (minus the anchor's
+        //    own width). TextKit draws kern correctly but reports the position of the glyph
+        //    right after a kerned glyph half a kern short; putting the kern on the first
+        //    separator character keeps that mis-metric off the cell text and the caret.
+        let source = document.sourceString as NSString
         for (i, sep) in row.separators.enumerated() {
-            if sep.length > 0 { d.alwaysConceal.append(sep) }
+            let isTrailing = i == row.separators.count - 1
             var kern: CGFloat = 0
             if i > 0 { kern += padding(i - 1).after + gutter }
             if i < row.cells.count { kern += gutter + padding(i).before }
-            if i == row.separators.count - 1 { continue }   // trailing: nothing follows
-            if sep.length > 0 {
-                d.styles.append(StyleRun(NSRange(location: sep.end - 1, length: 1), .kern(kern)))
-            } else if i == 0 {
-                d.firstLineHeadIndent += kern   // no leading pipe: pad with the indent instead
-                d.headIndent += kern
+            if sep.length == 0 {
+                if i == 0 && !isTrailing {
+                    d.firstLineHeadIndent += kern   // no leading pipe: pad with the indent instead
+                    d.headIndent += kern
+                }
+                continue
+            }
+            let anchor = NSRange(location: sep.end - 1, length: 1)
+            let first = NSRange(location: sep.location, length: 1)
+            if sep.length > 1 { d.alwaysConceal.append(NSRange(sep.location, to: anchor.location)) }
+            let anchorWidth = (source.substring(with: anchor) as NSString).size(withAttributes: [.font: theme.bodyFont]).width
+            d.styles.append(StyleRun(anchor, .font(theme.bodyFont)))
+            d.styles.append(StyleRun(anchor, .foreground(.clear)))
+            if !isTrailing {
+                d.styles.append(StyleRun(first, .kern(max(0, kern - anchorWidth))))
             }
         }
     }
