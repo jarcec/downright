@@ -10,6 +10,7 @@ final class DocumentWindowController: NSWindowController, NSWindowDelegate {
     private let gutter: LineNumberGutterView
     private let outline = OutlineOverlayView(frame: .zero)
     private let statusBar = StatusBarView(frame: .zero)
+    private let notice = NoticeBarView(frame: .zero)
 
     init(document: MarkdownDocument) {
         editor = EditorController(textStorage: document.textStorage)
@@ -34,18 +35,22 @@ final class DocumentWindowController: NSWindowController, NSWindowDelegate {
         container.addSubview(scroll)
         container.addSubview(outline)
         container.addSubview(statusBar)
+        container.addSubview(notice)
         NSLayoutConstraint.activate([
+            notice.topAnchor.constraint(equalTo: container.topAnchor),
+            notice.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+            notice.trailingAnchor.constraint(equalTo: container.trailingAnchor),
             statusBar.leadingAnchor.constraint(equalTo: container.leadingAnchor),
             statusBar.trailingAnchor.constraint(equalTo: container.trailingAnchor),
             statusBar.bottomAnchor.constraint(equalTo: container.bottomAnchor),
-            gutter.topAnchor.constraint(equalTo: container.topAnchor),
+            gutter.topAnchor.constraint(equalTo: notice.bottomAnchor),
             gutter.bottomAnchor.constraint(equalTo: statusBar.topAnchor),
             gutter.leadingAnchor.constraint(equalTo: container.leadingAnchor),
-            scroll.topAnchor.constraint(equalTo: container.topAnchor),
+            scroll.topAnchor.constraint(equalTo: notice.bottomAnchor),
             scroll.bottomAnchor.constraint(equalTo: statusBar.topAnchor),
             scroll.leadingAnchor.constraint(equalTo: gutter.trailingAnchor),
             scroll.trailingAnchor.constraint(equalTo: container.trailingAnchor),
-            outline.topAnchor.constraint(equalTo: container.topAnchor, constant: 12),
+            outline.topAnchor.constraint(equalTo: notice.bottomAnchor, constant: 12),
             outline.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -28),
         ])
         window.contentView = container
@@ -63,6 +68,10 @@ final class DocumentWindowController: NSWindowController, NSWindowDelegate {
         outline.onSelect = { [weak self] offset in self?.editor.scroll(to: offset) }
         outline.isCollapsed = Settings.outlineCollapsed
         outline.onCollapsedChange = { Settings.outlineCollapsed = $0 }
+        document.externalChangeWhileEdited = { [weak self] in self?.showExternalChangeNotice() }
+        if ProcessInfo.processInfo.environment["DOWNRIGHT_DEBUG_NOTICE"] != nil {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in self?.showExternalChangeNotice() }
+        }
         editor.textView.vim.onStateChange = { [weak self] in self?.updateStatusLeading() }
         editor.textView.vim.onExCommand = { [weak self] cmd in self?.runExCommand(cmd) }
         editor.onDocumentChange = { [weak self] in self?.documentChanged() }
@@ -97,6 +106,17 @@ final class DocumentWindowController: NSWindowController, NSWindowDelegate {
     /// Called after the document re-read its file (external change, revert).
     func documentDidReload() {
         editor.reparseAll()
+        notice.hide()
+    }
+
+    /// The file changed on disk while this document has unsaved edits (TRD §8).
+    private func showExternalChangeNotice() {
+        guard let doc = document as? MarkdownDocument else { return }
+        let name = doc.fileURL?.lastPathComponent ?? "This file"
+        notice.show("\(name) was changed on disk while you have unsaved edits.", actions: [
+            ("Keep Mine", { [weak doc] in doc?.keepEditsDespiteExternalChange() }),
+            ("Reload from Disk", { [weak doc] in doc?.reloadFromDisk() }),
+        ])
     }
 
     // MARK: - Settings and chrome

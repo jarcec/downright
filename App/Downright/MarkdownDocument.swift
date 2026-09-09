@@ -8,6 +8,10 @@ let docLog = Logger(subsystem: "com.jarcec.Downright", category: "document")
 final class MarkdownDocument: NSDocument {
     let textStorage = NSTextStorage()
     private(set) var format = TextFileFormat()
+    /// Set by the window controller: called when the file changed on disk while the
+    /// document has unsaved edits, so the window can ask what to do.
+    var externalChangeWhileEdited: (() -> Void)?
+    private var acknowledgedDiskDate: Date?
 
     override class var autosavesInPlace: Bool { true }
     override class func canConcurrentlyReadDocuments(ofType typeName: String) -> Bool { false }
@@ -65,12 +69,31 @@ final class MarkdownDocument: NSDocument {
             return
         }
         if let known = fileModificationDate, modified <= known { return }
+        if let ack = acknowledgedDiskDate, modified <= ack { return }
         docLog.notice("external change detected for \(url.path, privacy: .public); edited=\(self.isDocumentEdited)")
-        guard !isDocumentEdited else { return }   // NSDocument warns at save time for the edited case (v0)
+        if isDocumentEdited {
+            externalChangeWhileEdited?()
+        } else {
+            reloadFromDisk()
+        }
+    }
+
+    /// Discard in-memory edits and re-read the file.
+    func reloadFromDisk() {
+        guard let url = fileURL else { return }
         do {
             try revert(toContentsOf: url, ofType: fileType ?? "net.daringfireball.markdown")
         } catch {
             docLog.error("reload FAILED for \(url.path, privacy: .public): \(error.localizedDescription, privacy: .public)")
         }
+    }
+
+    /// Keep the in-memory edits: adopt the on-disk modification date so the next save
+    /// overwrites without NSDocument's "modified by another application" alert.
+    func keepEditsDespiteExternalChange() {
+        guard let url = fileURL, let attrs = try? FileManager.default.attributesOfItem(atPath: url.path),
+              let modified = attrs[.modificationDate] as? Date else { return }
+        acknowledgedDiskDate = modified
+        fileModificationDate = modified
     }
 }
