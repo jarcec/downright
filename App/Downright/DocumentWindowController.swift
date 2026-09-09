@@ -130,6 +130,7 @@ final class DocumentWindowController: NSWindowController, NSWindowDelegate {
         outline.isHidden = !Settings.showOutline || editor.headings().isEmpty
         outline.isCollapsed = Settings.outlineCollapsed
         editor.textView.vim.isEnabled = Settings.vimMode
+        editor.textView.copiesRichTextByDefault = Settings.copyRichText
     }
 
     private var stats = EditorController.Statistics(lines: 0, words: 0, characters: 0)

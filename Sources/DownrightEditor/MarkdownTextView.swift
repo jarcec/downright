@@ -101,6 +101,31 @@ public final class MarkdownTextView: NSTextView {
         if let c = controller, c.isOnTableDelimiter(selectedRange().location) { super.moveUp(sender) }
     }
 
+    // MARK: - Copy: Markdown source or formatted text
+
+    /// When true, plain ⌘C copies formatted text and the alternate command copies source.
+    public var copiesRichTextByDefault = false
+
+    public override func copy(_ sender: Any?) {
+        if copiesRichTextByDefault { copyRichText() } else { super.copy(sender) }
+    }
+
+    /// ⌘⇧C: copy in whichever format ⌘C does *not* use.
+    @objc public func copyAlternate(_ sender: Any?) {
+        if copiesRichTextByDefault { super.copy(sender) } else { copyRichText() }
+    }
+
+    private func copyRichText() {
+        let sel = selectedRange()
+        guard sel.length > 0 else { NSSound.beep(); return }
+        let markdown = (string as NSString).substring(with: sel)
+        let rich = RichTextExporter.attributedString(markdown: markdown, theme: controller?.theme ?? Theme())
+        let pb = NSPasteboard.general
+        pb.clearContents()
+        pb.writeObjects([rich])   // RTF + plain text
+        pb.setString(markdown, forType: NSPasteboard.PasteboardType("net.daringfireball.markdown"))
+    }
+
     // MARK: - Context menu
 
     public override func menu(for event: NSEvent) -> NSMenu? {
@@ -205,6 +230,9 @@ public final class MarkdownTextView: NSTextView {
 
     public override func validateUserInterfaceItem(_ item: any NSValidatedUserInterfaceItem) -> Bool {
         switch item.action {
+        case #selector(copyAlternate(_:)):
+            if let mi = item as? NSMenuItem { mi.title = copiesRichTextByDefault ? "Copy as Markdown" : "Copy as Rich Text" }
+            return selectedRange().length > 0
         case #selector(toggleBold(_:)), #selector(toggleItalic(_:)), #selector(toggleInlineCode(_:)),
              #selector(insertLink(_:)), #selector(toggleRevealAll(_:)):
             if let mi = item as? NSMenuItem, item.action == #selector(toggleRevealAll(_:)) {

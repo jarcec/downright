@@ -40,6 +40,8 @@ final class Settings: ObservableObject {
     @Published var outlineCollapsed = false { didSet { changed() } }
     @Published var appearance: Appearance = .system { didSet { changed() } }
     @Published var vimMode = false { didSet { changed() } }
+    /// ⌘C copies formatted text (⌘⇧C then copies Markdown source) instead of the reverse.
+    @Published var copyRichText = false { didSet { changed() } }
 
     // Static accessors keep call sites short.
     static var showLineNumbers: Bool { get { shared.showLineNumbers } set { shared.showLineNumbers = newValue } }
@@ -47,6 +49,7 @@ final class Settings: ObservableObject {
     static var outlineCollapsed: Bool { get { shared.outlineCollapsed } set { shared.outlineCollapsed = newValue } }
     static var appearance: Appearance { get { shared.appearance } set { shared.appearance = newValue } }
     static var vimMode: Bool { get { shared.vimMode } set { shared.vimMode = newValue } }
+    static var copyRichText: Bool { get { shared.copyRichText } set { shared.copyRichText = newValue } }
 
     /// Push the chosen appearance to the app. Safe to call repeatedly.
     static func applyAppearance() {
@@ -68,6 +71,7 @@ final class Settings: ObservableObject {
     # extra keys are kept, so this file is safe to manage with chezmoi.
     #
     # appearance: "system" | "light" | "dark"
+    # copy_rich_text: when true, ⌘C copies formatted text and ⌘⇧C copies Markdown source
 
     """
 
@@ -117,6 +121,7 @@ final class Settings: ObservableObject {
         if case .bool(let b)? = values["outline_collapsed"] { outlineCollapsed = b }
         if case .string(let s)? = values["appearance"], let a = Appearance(rawValue: s) { appearance = a }
         if case .bool(let b)? = values["vim_mode"] { vimMode = b }
+        if case .bool(let b)? = values["copy_rich_text"] { copyRichText = b }
         NotificationCenter.default.post(name: Self.didChange, object: self)
     }
 
@@ -127,6 +132,7 @@ final class Settings: ObservableObject {
             "outline_collapsed": .bool(outlineCollapsed),
             "appearance": .string(appearance.rawValue),
             "vim_mode": .bool(vimMode),
+            "copy_rich_text": .bool(copyRichText),
         ]
     }
 

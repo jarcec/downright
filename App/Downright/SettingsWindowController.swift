@@ -16,6 +16,12 @@ struct SettingsView: View {
                 Toggle("Show line numbers", isOn: $settings.showLineNumbers)
                 Toggle("Show outline", isOn: $settings.showOutline)
             }
+            Section("Copy") {
+                Toggle("⌘C copies formatted text", isOn: $settings.copyRichText)
+                Text(settings.copyRichText ? "⌘⇧C copies the Markdown source." : "⌘C copies the Markdown source; ⌘⇧C copies formatted text for pasting into mail, Slack or documents.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
             Section("Keys") {
                 Toggle("Vim mode", isOn: $settings.vimMode)
                 Text("Normal/insert/command modes with counts, d y c operators, h j k l w b e 0 ^ $ G gg motions, x D p P u ⌃R, and :w :q :wq :q!.")
