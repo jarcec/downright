@@ -27,9 +27,13 @@ final class DecoratedLayoutFragment: NSTextLayoutFragment {
         textLayoutManager?.textContainer?.size.width ?? layoutFragmentFrame.width
     }
 
+    /// An indented paragraph's fragment frame starts at the indent, not at the column
+    /// edge; block decorations are drawn relative to the column, so shift back by it.
+    private var indentOffset: CGFloat { super.layoutFragmentFrame.origin.x }
+
     override var renderingSurfaceBounds: CGRect {
         var b = super.renderingSurfaceBounds
-        b = b.union(CGRect(x: -8, y: 0, width: columnWidth + 16, height: super.layoutFragmentFrame.height))
+        b = b.union(CGRect(x: -indentOffset - 8, y: 0, width: columnWidth + 16, height: super.layoutFragmentFrame.height))
         return b
     }
 
@@ -37,7 +41,7 @@ final class DecoratedLayoutFragment: NSTextLayoutFragment {
         if appearance == .hidden { return }
         let width = columnWidth
         let height = super.layoutFragmentFrame.height
-        let lineRect = CGRect(x: point.x, y: point.y, width: width, height: height)
+        let lineRect = CGRect(x: point.x - indentOffset, y: point.y, width: width, height: height)
 
         context.saveGState()
         switch appearance {

@@ -20,8 +20,9 @@ public struct Theme: Sendable {
 
     public var textColor: NSColor { .labelColor }
     public var secondaryColor: NSColor { .secondaryLabelColor }
-    /// Revealed syntax markers (`**`, `#`, `>`), so raw source reads as scaffolding.
-    public var markerColor: NSColor { .tertiaryLabelColor }
+    /// Revealed syntax markers (`**`, `#`, `>`): a green tint so the scaffolding that
+    /// just appeared under the caret is easy to spot.
+    public var markerColor: NSColor { .systemGreen }
     public var accentColor: NSColor { .linkColor }
     public var listMarkerColor: NSColor { .secondaryLabelColor }
 
