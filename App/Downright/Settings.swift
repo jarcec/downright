@@ -37,7 +37,7 @@ enum Settings {
             showOutlineKey: true,
             outlineCollapsedKey: false,
             appearanceKey: Appearance.system.rawValue,
-            vimModeKey: true,
+            vimModeKey: false,
         ])
     }
 

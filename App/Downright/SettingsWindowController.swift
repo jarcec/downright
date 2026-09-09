@@ -5,7 +5,7 @@ struct SettingsView: View {
     @AppStorage(Settings.showLineNumbersKey) private var showLineNumbers = true
     @AppStorage(Settings.showOutlineKey) private var showOutline = true
     @AppStorage(Settings.appearanceKey) private var appearance = Settings.Appearance.system.rawValue
-    @AppStorage(Settings.vimModeKey) private var vimMode = true
+    @AppStorage(Settings.vimModeKey) private var vimMode = false
 
     var body: some View {
         Form {
