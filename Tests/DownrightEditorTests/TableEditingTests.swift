@@ -86,3 +86,19 @@ final class TableEditingTests: XCTestCase {
         XCTAssertEqual(c.engine.revealedCell?.cellIndex, 1)
     }
 }
+
+@MainActor
+final class TableVimTests: XCTestCase {
+    func testVimJSkipsDelimiterRow() {
+        let c = EditorController(textStorage: NSTextStorage(string: "| a | b |\n|---|---|\n| c | d |\n"))
+        c.layoutManager.textContainer?.size = CGSize(width: 800, height: 1e7)
+        c.textView.vim.isEnabled = true
+        c.textView.setSelectedRange(NSRange(location: 2, length: 0))
+        let j = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0, windowNumber: 0, context: nil, characters: "j", charactersIgnoringModifiers: "j", isARepeat: false, keyCode: 0)!
+        _ = c.textView.vim.handle(j)
+        XCTAssertEqual(c.tableHit(at: c.textView.selectedRange().location)?.rowIndex, 1)
+        let k = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0, windowNumber: 0, context: nil, characters: "k", charactersIgnoringModifiers: "k", isARepeat: false, keyCode: 0)!
+        _ = c.textView.vim.handle(k)
+        XCTAssertEqual(c.tableHit(at: c.textView.selectedRange().location)?.rowIndex, 0)
+    }
+}

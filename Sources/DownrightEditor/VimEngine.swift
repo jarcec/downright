@@ -222,8 +222,13 @@ public final class VimEngine {
             while p < cr.end, C.isSpaceOrTab(s.character(at: p)) { p += 1 }
             return p
         case .up, .down:
-            let target = m == .up ? li - 1 : li + 1
+            var target = m == .up ? li - 1 : li + 1
             guard target >= 0, target < lines.lineCount else { return loc }
+            // Skip a table's hidden delimiter row.
+            if controller?.isOnTableDelimiter(lines.lineStarts[target]) == true {
+                target += m == .up ? -1 : 1
+                guard target >= 0, target < lines.lineCount else { return loc }
+            }
             let col = loc - cr.location
             let tr = lines.contentRange(ofLine: target)
             return tr.location + min(col, tr.length)
