@@ -326,7 +326,8 @@ final class BlockParser {
             let (_, after) = indentation(from: pos, upTo: lineEnd)
             if dialect.tables, allMatched, para.rawLines.count == 1,
                isTableDelimiterRow(NSRange(after, to: lineEnd), headerCells: cellCount(para.rawLines[0])) {
-                para.kind = .table(delimiterRow: NSRange(after, to: lineEnd))
+                para.kind = .table(Table(header: TableRow(range: para.rawLines[0], cells: [], separators: []),
+                                        delimiterRow: NSRange(after, to: lineEnd), alignments: [], rows: []))
                 para.rawLines.append(NSRange(after, to: lineEnd))
                 extendEnds(para, to: lineEndIncl)
                 return
@@ -418,8 +419,9 @@ final class BlockParser {
             finalizeParagraph(node)
         case .heading, .setextHeading:
             node.contents = trimTrailingSpaces(node.rawLines)
-        case .table:
+        case .table(let partial):
             node.contents = node.rawLines
+            node.kind = .table(buildTable(from: node.rawLines, delimiterRow: partial.delimiterRow))
         case .indentedCode:
             while let last = node.contents.last, isBlank(from: last.location, to: last.end) {
                 node.contents.removeLast()
@@ -496,6 +498,17 @@ final class BlockParser {
         case .paragraph, .heading, .setextHeading:
             block.inlines = InlineParser(source: buf, contentRanges: node.contents, dialect: dialect,
                                          references: references).parse()
+        case .table(var table):
+            func parsed(_ row: TableRow) -> TableRow {
+                var r = row
+                r.cells = row.cells.map { cell in
+                    TableCell(range: cell.range, inlines: InlineParser(source: buf, contentRanges: [cell.range], dialect: dialect, references: references).parse())
+                }
+                return r
+            }
+            table.header = parsed(table.header)
+            table.rows = table.rows.map(parsed)
+            block.kind = .table(table)
         default:
             break
         }
@@ -739,6 +752,61 @@ final class BlockParser {
     }
 
     // MARK: Tables
+
+    /// Split a row into trimmed cells and the separator runs between them.
+    func splitRow(_ r: NSRange) -> TableRow {
+        var pipes: [Int] = []
+        var p = r.location
+        while p < r.end {
+            if buf[p] == C.backslash { p += 2; continue }
+            if buf[p] == C.pipe { pipes.append(p) }
+            p += 1
+        }
+        // Content boundaries: start after a leading pipe, end before a trailing pipe.
+        var start = r.location, end = r.end
+        while start < end && C.isSpaceOrTab(buf[start]) { start += 1 }
+        while end > start && C.isSpaceOrTab(buf[end - 1]) { end -= 1 }
+        var inner = pipes
+        var hasLeading = false, hasTrailing = false
+        if let f = inner.first, f == start { hasLeading = true; inner.removeFirst() }
+        if let l = inner.last, l == end - 1, end - 1 >= start, !(hasLeading && pipes.count == 1) { hasTrailing = true; inner.removeLast() }
+        // Cell raw spans between the boundaries/pipes
+        var bounds: [(Int, Int)] = []
+        var cursor = hasLeading ? start + 1 : start
+        for pipe in inner { bounds.append((cursor, pipe)); cursor = pipe + 1 }
+        bounds.append((cursor, hasTrailing ? end - 1 : end))
+        var cells: [TableCell] = []
+        var separators: [NSRange] = []
+        var prevContentEnd = r.location
+        for (a, b) in bounds {
+            var cs = a, ce = b
+            while cs < ce && C.isSpaceOrTab(buf[cs]) { cs += 1 }
+            while ce > cs && C.isSpaceOrTab(buf[ce - 1]) { ce -= 1 }
+            separators.append(NSRange(prevContentEnd, to: cs))
+            cells.append(TableCell(range: NSRange(cs, to: ce)))
+            prevContentEnd = ce
+        }
+        separators.append(NSRange(prevContentEnd, to: r.end))
+        return TableRow(range: r, cells: cells, separators: separators)
+    }
+
+    private func buildTable(from lines: [NSRange], delimiterRow: NSRange) -> Table {
+        let header = splitRow(lines[0])
+        let delimiterCells = splitRow(delimiterRow).cells
+        var alignments: [TableAlignment] = delimiterCells.map { cell in
+            let t = buf.string(cell.range)
+            let l = t.hasPrefix(":"), r = t.hasSuffix(":")
+            switch (l, r) {
+            case (true, true): return .center
+            case (true, false): return .left
+            case (false, true): return .right
+            default: return .none
+            }
+        }
+        while alignments.count < header.cells.count { alignments.append(.none) }
+        let rows = lines.dropFirst(2).map { splitRow($0) }
+        return Table(header: header, delimiterRow: delimiterRow, alignments: alignments, rows: Array(rows))
+    }
 
     private func cellCount(_ r: NSRange) -> Int {
         var start = r.location, end = r.end

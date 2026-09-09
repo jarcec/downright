@@ -102,7 +102,19 @@ final class ParserTests: XCTestCase {
     }
 
     func testTableAndFrontmatter() {
-        XCTAssertEqual(dump("| a | b |\n|---|:-:|\n| 1 | 2 |\nnot table\n"), "table 0..<40\n")
+        XCTAssertEqual(dump("| a | b |\n|---|:-:|\n| 1 | 2 |\nnot table\n"), """
+        table(cols=2,rows=2) 0..<40
+          header 0..<9 cells=["a" | "b"] seps=0+2,3+3,7+2
+            text 2..<3 "a"
+            text 6..<7 "b"
+          row 20..<29 cells=["1" | "2"] seps=20+2,23+3,27+2
+            text 22..<23 "1"
+            text 26..<27 "2"
+          row 30..<39 cells=["not table"] seps=30+0,39+0
+            text 30..<39 "not table"
+          align=[MarkdownKit.TableAlignment.none, MarkdownKit.TableAlignment.center]
+
+        """)
         XCTAssertEqual(dump("---\ntitle: x\n---\n# After\n"), """
         frontmatter 0..<17 markers=0+3,13+3
         heading1 17..<25 markers=17+2
@@ -275,5 +287,35 @@ final class ParserTests: XCTestCase {
         XCTAssertGreaterThan(doc.blocks.count, 1000)
         print("PARSE 1 MB: \(Int(ms)) ms (debug build)")
         XCTAssertLessThan(ms, 2000)
+    }
+
+    func testTableCellsAlignmentsAndInlines() {
+        let src = "Name | **Bold** | c\n:--- | ---: | :-:\nx | `y` | [l](u)\n"
+        let doc = MarkdownParser.parse(src)
+        guard case .table(let t) = doc.blocks[0].kind else { return XCTFail("not a table") }
+        XCTAssertEqual(t.columnCount, 3)
+        XCTAssertEqual(t.alignments, [.left, .right, .center])
+        XCTAssertEqual(t.header.cells.map { (src as NSString).substring(with: $0.range) }, ["Name", "**Bold**", "c"])
+        XCTAssertEqual(t.header.separators.count, 4)
+        XCTAssertEqual(t.header.separators.first?.length, 0, "no leading pipe → empty leading separator")
+        XCTAssertEqual(t.header.cells[1].inlines.first?.kind.label, "strong")
+        XCTAssertEqual(t.rows[0].cells[1].inlines.first?.kind.label, "code")
+        XCTAssertEqual(t.rows[0].cells[2].inlines.first?.kind.label, "link(u)")
+        // Every cell and separator range lies inside its row, and they tile the row
+        for row in t.allRows {
+            var pos = row.range.location
+            for (i, cell) in row.cells.enumerated() {
+                XCTAssertEqual(row.separators[i].location, pos); pos = row.separators[i].end
+                XCTAssertEqual(cell.range.location, pos); pos = cell.range.end
+            }
+            XCTAssertEqual(row.separators.last!.location, pos)
+            XCTAssertEqual(row.separators.last!.end, row.range.end)
+        }
+    }
+
+    func testTableEscapedPipeStaysInCell() {
+        let doc = MarkdownParser.parse("| a \\| b | c |\n|---|---|\n")
+        guard case .table(let t) = doc.blocks[0].kind else { return XCTFail() }
+        XCTAssertEqual(t.header.cells.count, 2)
     }
 }

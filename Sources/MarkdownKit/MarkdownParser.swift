@@ -78,6 +78,15 @@ extension Document {
                 out += String(repeating: "  ", count: depth) + "\(b.kind.label) \(b.range.location)..<\(b.range.end)"
                 if !b.markerRanges.isEmpty { out += " markers=" + b.markerRanges.map { "\($0.location)+\($0.length)" }.joined(separator: ",") }
                 out += "\n"
+                if case .table(let t) = b.kind {
+                    for (ri, row) in t.allRows.enumerated() {
+                        let cells = row.cells.map { "\"\(text($0.range))\"" }.joined(separator: " | ")
+                        let seps = row.separators.map { "\($0.location)+\($0.length)" }.joined(separator: ",")
+                        out += String(repeating: "  ", count: depth + 1) + (ri == 0 ? "header" : "row") + " \(row.range.location)..<\(row.range.end) cells=[\(cells)] seps=\(seps)\n"
+                        for cell in row.cells { inl(cell.inlines, depth + 2) }
+                    }
+                    out += String(repeating: "  ", count: depth + 1) + "align=\(t.alignments)\n"
+                }
                 inl(b.inlines, depth + 1)
                 blk(b.children, depth + 1)
             }
@@ -100,7 +109,7 @@ extension Block.Kind {
         case .blockQuote: return "quote"
         case .list(let o, let t, let s): return "list(\(o ? "ordered@\(s)" : "bullet"),\(t ? "tight" : "loose"))"
         case .listItem(_, let ci, let task): return "item(indent=\(ci)" + (task.map { $0.state == .checked ? ",done" : ",todo" } ?? "") + ")"
-        case .table: return "table"
+        case .table(let t): return "table(cols=\(t.columnCount),rows=\(t.rows.count))"
         case .frontmatter: return "frontmatter"
         case .linkReferenceDefinition: return "linkref"
         }

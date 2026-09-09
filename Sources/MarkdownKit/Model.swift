@@ -28,6 +28,44 @@ public struct TaskMarker: Sendable, Equatable {
     public var range: NSRange
 }
 
+public enum TableAlignment: Sendable, Equatable {
+    case none, left, center, right
+}
+
+public struct TableCell: Sendable {
+    /// Trimmed cell content.
+    public var range: NSRange
+    public var inlines: [Inline]
+    public init(range: NSRange, inlines: [Inline] = []) { self.range = range; self.inlines = inlines }
+}
+
+public struct TableRow: Sendable {
+    /// The row's source line (excluding newline).
+    public var range: NSRange
+    public var cells: [TableCell]
+    /// Structure between cells: `separators[i]` precedes `cells[i]`; the last one trails the
+    /// final cell. Each covers the pipe and surrounding spaces; may be empty (no leading or
+    /// trailing pipe). Always `cells.count + 1` entries.
+    public var separators: [NSRange]
+    public init(range: NSRange, cells: [TableCell], separators: [NSRange]) {
+        self.range = range; self.cells = cells; self.separators = separators
+    }
+}
+
+public struct Table: Sendable {
+    public var header: TableRow
+    /// The `|---|:-:|` line (excluding newline).
+    public var delimiterRow: NSRange
+    public var alignments: [TableAlignment]
+    public var rows: [TableRow]
+    public var columnCount: Int { header.cells.count }
+    public init(header: TableRow, delimiterRow: NSRange, alignments: [TableAlignment], rows: [TableRow]) {
+        self.header = header; self.delimiterRow = delimiterRow; self.alignments = alignments; self.rows = rows
+    }
+    /// Header, then body rows, in source order.
+    public var allRows: [TableRow] { [header] + rows }
+}
+
 public struct Block: Sendable {
     public enum Kind: Sendable {
         case paragraph
@@ -46,9 +84,8 @@ public struct Block: Sendable {
         /// `marker` covers the bullet or the number+delimiter. `contentIndent` is the
         /// column at which continuation lines must be indented to belong to this item.
         case listItem(marker: NSRange, contentIndent: Int, task: TaskMarker?)
-        /// GFM table. Rows are not parsed into cells in v0; `delimiterRow` is the
-        /// `|---|---|` line (excluding newline).
-        case table(delimiterRow: NSRange)
+        /// GFM table with cells and alignments parsed.
+        case table(Table)
         /// YAML frontmatter at offset 0. Markers: the two `---` lines.
         case frontmatter
         case linkReferenceDefinition
