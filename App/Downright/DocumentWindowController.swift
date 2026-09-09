@@ -159,12 +159,10 @@ final class DocumentWindowController: NSWindowController, NSWindowDelegate {
 
     func windowDidEndLiveResize(_ notification: Notification) { rememberFrame() }
     func windowDidMove(_ notification: Notification) { rememberFrame() }
-    func windowDidResize(_ notification: Notification) {
-        if window?.inLiveResize == false { rememberFrame() }   // zoom / programmatic resizes
-    }
 
     func windowDidResize(_ notification: Notification) {
         outline.maxHeight = max(120, (window?.contentView?.bounds.height ?? 600) * 0.5)
+        if window?.inLiveResize == false { rememberFrame() }   // zoom / programmatic resizes
     }
 
     /// Called after the document re-read its file (external change, revert).
