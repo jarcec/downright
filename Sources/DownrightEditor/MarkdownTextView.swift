@@ -91,7 +91,11 @@ public final class MarkdownTextView: NSTextView {
     public override func menu(for event: NSEvent) -> NSMenu? {
         // Copy: the superclass hands back a shared menu, and inserting into it would persist.
         let menu = (super.menu(for: event)?.copy() as? NSMenu) ?? NSMenu()
-        guard selectedRange().length > 0 else { return menu }
+        // Right-click auto-selects the word (or newline) under the pointer; only offer
+        // formatting when there is actual text to wrap.
+        let sel = selectedRange()
+        guard sel.length > 0,
+              !(string as NSString).substring(with: sel).trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return menu }
         let items: [(String, Selector)] = [
             ("Insert Link", #selector(insertLink(_:))),
             ("Bold", #selector(toggleBold(_:))),

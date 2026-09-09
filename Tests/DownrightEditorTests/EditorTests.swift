@@ -166,17 +166,25 @@ final class LinkPasteTests: XCTestCase {
 
     func testContextMenuOffersInsertLinkForSelection() {
         let c = make("hello world\n\n\n\n\n\n")   // blank lines give the click empty space
+        // A real window so the event's location converts to view coordinates.
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 400), styleMask: [.titled], backing: .buffered, defer: false)
+        window.contentView = c.scrollView
+        c.scrollView.frame = NSRect(x: 0, y: 0, width: 600, height: 400)
+        window.layoutIfNeeded()
+        func rightClick(atTextViewPoint p: NSPoint) -> [String] {
+            let inWindow = c.textView.convert(p, to: nil)
+            let event = NSEvent.mouseEvent(with: .rightMouseDown, location: inWindow, modifierFlags: [], timestamp: 0,
+                                           windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1)!
+            return c.textView.menu(for: event)?.items.map(\.title) ?? []
+        }
         c.textView.setSelectedRange(NSRange(location: 0, length: 5))
-        let event = NSEvent.mouseEvent(with: .rightMouseDown, location: NSPoint(x: 10, y: 10), modifierFlags: [], timestamp: 0,
-                                       windowNumber: 0, context: nil, eventNumber: 0, clickCount: 1, pressure: 1)!
-        let titles = c.textView.menu(for: event)?.items.map(\.title) ?? []
-        XCTAssertEqual(Array(titles.prefix(4)), ["Insert Link", "Bold", "Italic", "Inline Code"])
-        // Right-clicking on a word auto-selects it (standard NSTextView behaviour), so the
-        // no-selection case must click empty space below the text.
+        let inside = c.caretRect(at: 2).map { NSPoint(x: $0.midX, y: $0.midY) } ?? NSPoint(x: 40, y: 34)
+        let titles = rightClick(atTextViewPoint: inside)
+        XCTAssertEqual(Array(titles.prefix(4)), ["Insert Link", "Bold", "Italic", "Inline Code"], "selection after menu: \(c.textView.selectedRange())")
+        // Right-click on a blank line auto-selects at most the newline: no formatting offered.
         c.textView.setSelectedRange(NSRange(location: 0, length: 0))
-        let empty = NSEvent.mouseEvent(with: .rightMouseDown, location: NSPoint(x: 300, y: 110), modifierFlags: [], timestamp: 0,
-                                       windowNumber: 0, context: nil, eventNumber: 0, clickCount: 1, pressure: 1)!
-        let plain = c.textView.menu(for: empty)?.items.map(\.title) ?? []
-        XCTAssertFalse(plain.contains("Insert Link"), "menu without selection: \(plain)")
+        let blank = c.caretRect(at: 14).map { NSPoint(x: 300, y: $0.midY) } ?? NSPoint(x: 300, y: 110)
+        let plain = rightClick(atTextViewPoint: blank)
+        XCTAssertFalse(plain.contains("Insert Link"), "selection \(c.textView.selectedRange()) menu: \(plain.prefix(6))")
     }
 }
