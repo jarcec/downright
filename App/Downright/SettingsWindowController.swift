@@ -4,9 +4,16 @@ import SwiftUI
 struct SettingsView: View {
     @AppStorage(Settings.showLineNumbersKey) private var showLineNumbers = true
     @AppStorage(Settings.showOutlineKey) private var showOutline = true
+    @AppStorage(Settings.appearanceKey) private var appearance = Settings.Appearance.system.rawValue
 
     var body: some View {
         Form {
+            Section("Appearance") {
+                Picker("Theme", selection: $appearance) {
+                    ForEach(Settings.Appearance.allCases) { Text($0.title).tag($0.rawValue) }
+                }
+                .pickerStyle(.segmented)
+            }
             Section("Editor") {
                 Toggle("Show line numbers", isOn: $showLineNumbers)
                 Toggle("Show outline", isOn: $showOutline)

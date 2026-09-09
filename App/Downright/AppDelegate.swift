@@ -5,8 +5,14 @@ import DownrightEditor
 final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     func applicationWillFinishLaunching(_ notification: Notification) {
         Settings.registerDefaults()
+        Settings.applyAppearance()
+        NotificationCenter.default.addObserver(self, selector: #selector(defaultsChanged(_:)), name: UserDefaults.didChangeNotification, object: nil)
         NSApp.mainMenu = MainMenu.build()
         DebugLog.write("willFinishLaunching: lineNumbers=\(Settings.showLineNumbers) outline=\(Settings.showOutline)")
+    }
+
+    @objc private func defaultsChanged(_ note: Notification) {
+        Settings.applyAppearance()
     }
 
     // MARK: - Settings actions (reachable from any window via the responder chain end)
