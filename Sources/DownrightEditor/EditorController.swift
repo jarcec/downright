@@ -15,11 +15,15 @@ public final class EditorController: NSObject, NSTextViewDelegate, @preconcurren
     public var theme: Theme {
         didSet {
             guard theme != oldValue else { return }
-            engine = DecorationEngine(document: document, lines: lines, theme: theme)
-            storageDelegate.engine = engine
+            rebuildEngine()
             invalidate([NSRange(location: 0, length: textStorage.length)])
             textView.updateBlockCursor()
         }
+    }
+
+    private func rebuildEngine() {
+        engine = DecorationEngine(document: document, lines: lines, theme: theme, sourceMode: mode == .raw)
+        storageDelegate.engine = engine
     }
     public var dialect: Dialect = .gfm
 
@@ -41,11 +45,35 @@ public final class EditorController: NSObject, NSTextViewDelegate, @preconcurren
     /// Fired after every selection change and after reparses.
     public var onSelectionChange: (() -> Void)?
 
-    public var revealAll = false {
-        didSet {
-            storageDelegate.revealAll = revealAll
-            invalidate([NSRange(location: 0, length: textStorage.length)])
+    public enum Mode: Int, CaseIterable {
+        case raw = 0, live = 1, view = 2
+        public var title: String {
+            switch self { case .raw: return "Raw"; case .live: return "Live"; case .view: return "View" }
         }
+        public var longTitle: String {
+            switch self { case .raw: return "Raw Markdown"; case .live: return "Live Editing"; case .view: return "View Only" }
+        }
+    }
+
+    /// Raw source / live hybrid editing / rendered read-only. Per window; Live by default.
+    public var mode: Mode = .live {
+        didSet {
+            guard mode != oldValue else { return }
+            storageDelegate.revealAll = mode == .raw
+            storageDelegate.viewOnly = mode == .view
+            textView.isEditable = mode != .view
+            rebuildEngine()
+            updateReveal(extraInvalidation: [NSRange(location: 0, length: textStorage.length)])
+            textView.updateBlockCursor()
+            onModeChange?(mode)
+        }
+    }
+    public var onModeChange: ((Mode) -> Void)?
+
+    /// Legacy toggle (⌘⇧R): Raw ↔ Live.
+    public var revealAll: Bool {
+        get { mode == .raw }
+        set { mode = newValue ? .raw : .live }
     }
 
     public init(textStorage: NSTextStorage, theme: Theme = Theme()) {
@@ -136,8 +164,7 @@ public final class EditorController: NSObject, NSTextViewDelegate, @preconcurren
     private func replaceDocument(with doc: Document) {
         document = doc
         lines = LineIndex(textStorage.string)
-        engine = DecorationEngine(document: document, lines: lines, theme: theme)
-        storageDelegate.engine = engine
+        rebuildEngine()
         // Carry the caret's table cell into the new engine so widths stay right while typing.
         let caret = textView.selectedRange().location
         if let h = tableHit(at: caret), let ci = h.cellIndex {
@@ -317,7 +344,7 @@ public final class EditorController: NSObject, NSTextViewDelegate, @preconcurren
 
     private func updateReveal(extraInvalidation: [NSRange] = []) {
         let selections = textView.selectedRanges.map { $0.rangeValue }
-        let newRevealed = RevealPolicy.revealedRanges(selections: selections, document: document, lines: lines)
+        let newRevealed = mode == .view ? [] : RevealPolicy.revealedRanges(selections: selections, document: document, lines: lines)
         let oldRevealed = storageDelegate.revealed
         storageDelegate.revealed = newRevealed
         let caret = textView.selectedRange().location
@@ -508,6 +535,7 @@ public final class EditorController: NSObject, NSTextViewDelegate, @preconcurren
         let length = contentStorage.offset(from: range.location, to: range.endLocation)
         let d = engine.decoration(forParagraphAt: offset)
         let revealed = storageDelegate.isRevealed(NSRange(location: offset, length: length))
+        if mode == .raw { return fragment }
         fragment.quoteDepth = d.quoteDepth
         fragment.appearance = Self.appearance(for: d.role, revealed: revealed, at: offset, length: length)
         return fragment

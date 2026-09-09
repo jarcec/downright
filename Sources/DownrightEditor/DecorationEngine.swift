@@ -8,6 +8,9 @@ public final class DecorationEngine {
     public let document: Document
     public let lines: LineIndex
     public let theme: Theme
+    /// Raw Markdown mode: monospace source with colour hints only — no typography, block
+    /// decorations, substitutions or table layout.
+    public let sourceMode: Bool
     private var cache: [Int: ParagraphDecoration] = [:]
     private var tableLayouts: [Int: TableLayout] = [:]
     /// Highlight tokens per fenced code block (absolute source ranges), keyed by block start.
@@ -38,10 +41,11 @@ public final class DecorationEngine {
     /// Horizontal padding on each side of a cell's text.
     static let cellGutter: CGFloat = 10
 
-    public init(document: Document, lines: LineIndex, theme: Theme) {
+    public init(document: Document, lines: LineIndex, theme: Theme, sourceMode: Bool = false) {
         self.document = document
         self.lines = lines
         self.theme = theme
+        self.sourceMode = sourceMode
         self.spaceWidth = theme.spaceWidth
     }
 
@@ -49,9 +53,32 @@ public final class DecorationEngine {
         let li = lines.line(containing: location)
         let key = lines.lineStarts[li]
         if let hit = cache[key] { return hit }
-        let d = build(line: li)
+        var d = build(line: li)
+        if sourceMode { d = Self.asSource(d, theme: theme, paragraph: lines.paragraphRange(ofLine: li)) }
         cache[key] = d
         return d
+    }
+
+    /// Strip a decoration down to what Raw mode shows: monospace text, colour hints
+    /// (links, markers, code tokens), nothing concealed, no block layout.
+    static func asSource(_ d: ParagraphDecoration, theme: Theme, paragraph pr: NSRange) -> ParagraphDecoration {
+        var out = ParagraphDecoration()
+        out.styles = [StyleRun(pr, .font(theme.monoFont)), StyleRun(pr, .foreground(theme.textColor))]
+        for run in d.styles {
+            switch run.op {
+            case .foreground, .link, .strikethrough: out.styles.append(run)
+            default: break
+            }
+        }
+        // Markers always tinted (nothing is concealed in this mode).
+        for run in d.markerStyles { out.styles.append(run) }
+        for r in d.conceal + d.alwaysConceal where !d.markerStyles.contains(where: { $0.range == r }) {
+            out.styles.append(StyleRun(r, .foreground(theme.markerColor)))
+        }
+        out.lineHeightMultiple = theme.lineHeightMultiple
+        out.listItem = d.listItem
+        out.cellRanges = []
+        return out
     }
 
     // MARK: - Build

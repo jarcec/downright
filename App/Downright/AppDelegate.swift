@@ -165,7 +165,14 @@ enum MainMenu {
 
         // View
         let view = NSMenu(title: "View")
-        let reveal = view.addItem(withTitle: "Reveal All Syntax", action: #selector(MarkdownTextView.toggleRevealAll(_:)), keyEquivalent: "r")
+        let modeMenu = NSMenu(title: "Mode")
+        modeMenu.addItem(withTitle: "Raw Markdown", action: #selector(MarkdownTextView.setModeRaw(_:)), keyEquivalent: "1")
+        modeMenu.addItem(withTitle: "Live Editing", action: #selector(MarkdownTextView.setModeLive(_:)), keyEquivalent: "2")
+        modeMenu.addItem(withTitle: "View Only", action: #selector(MarkdownTextView.setModeView(_:)), keyEquivalent: "3")
+        let modeItem = NSMenuItem(title: "Mode", action: nil, keyEquivalent: "")
+        modeItem.submenu = modeMenu
+        view.addItem(modeItem)
+        let reveal = view.addItem(withTitle: "Toggle Raw Markdown", action: #selector(MarkdownTextView.toggleRevealAll(_:)), keyEquivalent: "r")
         reveal.keyEquivalentModifierMask = [.command, .shift]
         view.addItem(.separator())
         view.addItem(withTitle: "Show Line Numbers", action: #selector(AppDelegate.toggleLineNumbers(_:)), keyEquivalent: "l").keyEquivalentModifierMask = [.command, .shift]

@@ -8,10 +8,13 @@ public final class MarkdownContentStorageDelegate: NSObject, @preconcurrency NST
     public var engine: DecorationEngine?
     public var revealed: [NSRange] = []
     public var revealAll = false
+    /// View mode: nothing ever reveals.
+    public var viewOnly = false
     /// Caret location; decides which table cell reveals its markers.
     public var selectionLocation: Int? = nil
 
     public func isRevealed(_ range: NSRange) -> Bool {
+        if viewOnly { return false }
         if revealAll { return true }
         for r in revealed where r.location < range.end && range.location < r.end { return true }
         return false

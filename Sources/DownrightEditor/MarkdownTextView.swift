@@ -204,6 +204,10 @@ public final class MarkdownTextView: NSTextView {
         controller?.revealAll.toggle()
     }
 
+    @objc public func setModeRaw(_ sender: Any?) { controller?.mode = .raw }
+    @objc public func setModeLive(_ sender: Any?) { controller?.mode = .live }
+    @objc public func setModeView(_ sender: Any?) { controller?.mode = .view }
+
     private func toggle(marker: String) {
         let sel = selectedRange()
         let ns = string as NSString
@@ -233,11 +237,16 @@ public final class MarkdownTextView: NSTextView {
         case #selector(copyAlternate(_:)):
             if let mi = item as? NSMenuItem { mi.title = copiesRichTextByDefault ? "Copy as Markdown" : "Copy as Rich Text" }
             return selectedRange().length > 0
-        case #selector(toggleBold(_:)), #selector(toggleItalic(_:)), #selector(toggleInlineCode(_:)),
-             #selector(insertLink(_:)), #selector(toggleRevealAll(_:)):
-            if let mi = item as? NSMenuItem, item.action == #selector(toggleRevealAll(_:)) {
-                mi.state = (controller?.revealAll ?? false) ? .on : .off
+        case #selector(setModeRaw(_:)), #selector(setModeLive(_:)), #selector(setModeView(_:)):
+            if let mi = item as? NSMenuItem, let mode = controller?.mode {
+                let target: EditorController.Mode = item.action == #selector(setModeRaw(_:)) ? .raw : item.action == #selector(setModeLive(_:)) ? .live : .view
+                mi.state = mode == target ? .on : .off
             }
+            return true
+        case #selector(toggleRevealAll(_:)):
+            if let mi = item as? NSMenuItem { mi.state = (controller?.revealAll ?? false) ? .on : .off }
+            return true
+        case #selector(toggleBold(_:)), #selector(toggleItalic(_:)), #selector(toggleInlineCode(_:)), #selector(insertLink(_:)):
             return isEditable
         default:
             return super.validateUserInterfaceItem(item)

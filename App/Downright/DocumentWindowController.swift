@@ -78,6 +78,11 @@ final class DocumentWindowController: NSWindowController, NSWindowDelegate {
         if ProcessInfo.processInfo.environment["DOWNRIGHT_DEBUG_NOTICE"] != nil {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in self?.showExternalChangeNotice() }
         }
+        statusBar.onModeChange = { [weak self] mode in self?.editor.mode = mode; self?.window?.makeFirstResponder(self?.editor.textView) }
+        editor.onModeChange = { [weak self] mode in self?.statusBar.mode = mode }
+        if let m = ProcessInfo.processInfo.environment["DOWNRIGHT_DEBUG_MODE"] {   // screenshots
+            editor.mode = m == "raw" ? .raw : m == "view" ? .view : .live
+        }
         editor.textView.vim.onStateChange = { [weak self] in self?.updateStatusLeading() }
         editor.textView.vim.onExCommand = { [weak self] cmd in self?.runExCommand(cmd) }
         editor.onDocumentChange = { [weak self] in self?.documentChanged() }

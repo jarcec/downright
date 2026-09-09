@@ -25,6 +25,10 @@ downright -p *.md            # several files open as tabs
 downright -n                 # activate / new untitled document
 ```
 
+Each window has a mode, switched in the status bar or with ⌘1/⌘2/⌘3: **Raw Markdown**
+(monospace source), **Live Editing** (the default hybrid view), **View Only** (rendered,
+read-only).
+
 Settings are stored in `~/.config/downright.toml` and can be edited by hand or managed
 with chezmoi; changes apply live.
 
