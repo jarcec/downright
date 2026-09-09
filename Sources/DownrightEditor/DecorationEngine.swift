@@ -10,6 +10,8 @@ public final class DecorationEngine {
     public let theme: Theme
     private var cache: [Int: ParagraphDecoration] = [:]
     private var tableLayouts: [Int: TableLayout] = [:]
+    /// Highlight tokens per fenced code block (absolute source ranges), keyed by block start.
+    private var codeTokens: [Int: [(NSRange, CodeToken)]] = [:]
     private let spaceWidth: CGFloat
 
     /// The table cell under the caret, identified by table block start, row index into
@@ -164,6 +166,9 @@ public final class DecorationEngine {
                 let firstContent = firstLine + 1
                 let lastContent = closeFence == nil ? lastLine : lastLine - 1
                 d.role = .codeLine(info: info, first: li == firstContent, last: li == lastContent)
+                for (r, token) in highlightTokens(for: leaf, info: info) where NSIntersectionRange(r, cr).length > 0 {
+                    d.styles.append(StyleRun(r, .foreground(theme.color(for: token))))
+                }
             }
 
         case .indentedCode:
@@ -238,6 +243,24 @@ public final class DecorationEngine {
             }
         }
         walk(inlines)
+    }
+
+    // MARK: - Code highlighting
+
+    /// Tokens for a fenced block's content lines, computed once per block.
+    private func highlightTokens(for block: Block, info: String) -> [(NSRange, CodeToken)] {
+        if let hit = codeTokens[block.range.location] { return hit }
+        guard let highlighter = Highlighters.highlighter(for: info), let first = block.contentRanges.first, let last = block.contentRanges.last else {
+            codeTokens[block.range.location] = []
+            return []
+        }
+        // Content lines are contiguous in the source (fence indent stripping aside), so
+        // tokenize the span once and offset the results.
+        let span = NSRange(first.location, to: last.end)
+        let code = (document.sourceString as NSString).substring(with: span)
+        let tokens = highlighter.tokens(in: code).map { (NSRange(location: $0.0.location + span.location, length: $0.0.length), $0.1) }
+        codeTokens[block.range.location] = tokens
+        return tokens
     }
 
     // MARK: - Tables

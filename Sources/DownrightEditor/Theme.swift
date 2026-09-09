@@ -42,6 +42,24 @@ public struct Theme: Sendable {
         }
     }
     public var quoteBar: NSColor { .separatorColor }
+
+    /// Code highlighting palette (system colours, so they adapt to light/dark).
+    public func color(for token: CodeToken) -> NSColor {
+        switch token {
+        case .keyword: return .systemPurple
+        case .type: return .systemTeal
+        case .string: return .systemRed
+        case .comment: return .secondaryLabelColor
+        case .number: return .systemBlue
+        case .key: return .systemIndigo
+        case .variable: return .systemOrange
+        case .added: return .systemGreen
+        case .removed: return .systemRed
+        case .meta: return .tertiaryLabelColor
+        case .tag: return .systemPurple
+        case .attribute: return .systemBrown
+        }
+    }
     public var rule: NSColor { .separatorColor }
 
     /// The concealment constants (TRD OQ-T7). Zero advance, invisible, length preserved.
