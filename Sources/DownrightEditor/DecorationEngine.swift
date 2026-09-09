@@ -292,6 +292,13 @@ public final class DecorationEngine {
 
     // MARK: - Tables
 
+    /// Column rule positions (relative to the paragraph's left edge) for the table
+    /// containing `offset`, or nil.
+    public func tableBoundaries(at offset: Int) -> [CGFloat]? {
+        guard let block = document.path(containing: offset).last, case .table(let t) = block.kind else { return nil }
+        return tableLayout(for: t, blockStart: block.range.location).boundaries
+    }
+
     struct TableLayout {
         var columnWidths: [CGFloat]
         /// Column rule positions relative to the paragraph's left edge; `count == columns + 1`.

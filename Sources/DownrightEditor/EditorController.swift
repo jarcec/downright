@@ -65,6 +65,7 @@ public final class EditorController: NSObject, NSTextViewDelegate, @preconcurren
             rebuildEngine()
             updateReveal(extraInvalidation: [NSRange(location: 0, length: textStorage.length)])
             textView.updateBlockCursor()
+            textView.modeDidChange()
             onModeChange?(mode)
         }
     }

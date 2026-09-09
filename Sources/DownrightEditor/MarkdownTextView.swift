@@ -33,6 +33,8 @@ public final class MarkdownTextView: NSTextView {
         updateBlockCursor()
     }
 
+    func modeDidChange() { if controller?.mode != .live { hideTableHandles() } }
+
     public func updateBlockCursor() {
         guard vim.isEnabled, vim.mode != .insert, selectedRange().length == 0, let controller,
               let caret = controller.caretRect(at: selectedRange().location) else {
@@ -124,6 +126,97 @@ public final class MarkdownTextView: NSTextView {
         pb.clearContents()
         pb.writeObjects([rich])   // RTF + plain text
         pb.setString(markdown, forType: NSPasteboard.PasteboardType("net.daringfireball.markdown"))
+    }
+
+    // MARK: - Table hover handles (add column / add row)
+
+    private lazy var addColumnButton: NSButton = makeHandle(action: #selector(handleAddColumn(_:)), tip: "Add column")
+    private lazy var addRowButton: NSButton = makeHandle(action: #selector(handleAddRow(_:)), tip: "Add row")
+    private var handleTableOffset: Int? = nil
+    private var handleZone: NSRect = .zero
+    private var trackingArea: NSTrackingArea?
+
+    private func makeHandle(action: Selector, tip: String) -> NSButton {
+        let b = NSButton(frame: NSRect(x: 0, y: 0, width: 18, height: 18))
+        b.image = NSImage(systemSymbolName: "plus.circle.fill", accessibilityDescription: tip)
+        b.symbolConfiguration = .init(pointSize: 15, weight: .regular)
+        b.contentTintColor = .controlAccentColor
+        b.isBordered = false
+        b.imagePosition = .imageOnly
+        b.toolTip = tip
+        b.target = self
+        b.action = action
+        b.isHidden = true
+        b.wantsLayer = true
+        b.layer?.backgroundColor = NSColor.textBackgroundColor.cgColor
+        b.layer?.cornerRadius = 9
+        addSubview(b)
+        return b
+    }
+
+    public override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let t = trackingArea { removeTrackingArea(t) }
+        let t = NSTrackingArea(rect: .zero, options: [.mouseMoved, .mouseEnteredAndExited, .activeInKeyWindow, .inVisibleRect], owner: self, userInfo: nil)
+        addTrackingArea(t)
+        trackingArea = t
+    }
+
+    public override func mouseMoved(with event: NSEvent) {
+        super.mouseMoved(with: event)
+        updateTableHandles(at: convert(event.locationInWindow, from: nil))
+    }
+
+    public override func mouseExited(with event: NSEvent) {
+        super.mouseExited(with: event)
+        updateTableHandles(at: nil)
+    }
+
+    /// Show the add-column / add-row handles for the table under `point` (text view
+    /// coordinates), or hide them. Public for tests.
+    public func updateTableHandles(at point: NSPoint?) {
+        guard let controller, isEditable, controller.mode == .live, let point else { return hideTableHandles() }
+        // Keep them while the pointer is on a handle itself or in the slack around the table.
+        if handleTableOffset != nil, handleZone.contains(point) { return }
+        guard let offset = controller.characterIndex(at: point), let hit = controller.tableHit(at: offset),
+              let boundaries = controller.engine.tableBoundaries(at: offset), let last = boundaries.last,
+              let headerRect = controller.caretRect(at: hit.table.header.range.location),
+              let lastRow = hit.table.allRows.last, let lastRect = controller.caretRect(at: lastRow.range.location) else {
+            return hideTableHandles()
+        }
+        let hasLeadingPipe = (hit.table.header.separators.first?.length ?? 0) > 0
+        let left = headerRect.minX - (hasLeadingPipe ? 0 : DecorationEngine.cellGutter)
+        let tableRect = NSRect(x: left, y: headerRect.minY, width: last, height: lastRect.maxY - headerRect.minY)
+        handleTableOffset = hit.block.range.location
+        handleZone = tableRect.insetBy(dx: -28, dy: -28)
+        addColumnButton.frame.origin = NSPoint(x: tableRect.maxX + 4, y: headerRect.midY - 9)
+        addRowButton.frame.origin = NSPoint(x: tableRect.midX - 9, y: tableRect.maxY + 2)
+        addColumnButton.isHidden = false
+        addRowButton.isHidden = false
+    }
+
+    private func hideTableHandles() {
+        handleTableOffset = nil
+        addColumnButton.isHidden = true
+        addRowButton.isHidden = true
+    }
+
+    public var tableHandlesVisible: Bool { !addColumnButton.isHidden }
+
+    @objc private func handleAddColumn(_ sender: Any?) {
+        guard let controller, let start = handleTableOffset, let hit = controller.tableHit(at: start),
+              let lastCell = hit.table.header.cells.last else { return }
+        controller.performTableOperation(.insertColumnRight, at: lastCell.range.location)
+        window?.makeFirstResponder(self)
+        hideTableHandles()
+    }
+
+    @objc private func handleAddRow(_ sender: Any?) {
+        guard let controller, let start = handleTableOffset, let hit = controller.tableHit(at: start),
+              let lastRow = hit.table.allRows.last else { return }
+        controller.performTableOperation(.insertRowBelow, at: lastRow.range.location + (lastRow.cells.first?.range.location ?? 0) - lastRow.range.location)
+        window?.makeFirstResponder(self)
+        hideTableHandles()
     }
 
     // MARK: - Table operations (menu actions)
