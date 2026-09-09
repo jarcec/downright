@@ -326,3 +326,54 @@ final class VimSpecialKeyTests: XCTestCase {
         XCTAssertEqual(c.textView.vim.mode, .normal)
     }
 }
+
+@MainActor
+final class VimFindTests: XCTestCase {
+    private var c: EditorController!
+    private var storage: NSTextStorage!
+    private func load(_ text: String, caret: Int = 0) {
+        storage = NSTextStorage(string: text)
+        c = EditorController(textStorage: storage)
+        c.layoutManager.textContainer?.size = CGSize(width: 600, height: 1e7)
+        c.textView.vim.isEnabled = true
+        c.textView.setSelectedRange(NSRange(location: caret, length: 0))
+    }
+    private func keys(_ s: String) {
+        for ch in s {
+            let e = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0, windowNumber: 0, context: nil, characters: String(ch), charactersIgnoringModifiers: String(ch), isARepeat: false, keyCode: 0)!
+            if !c.textView.vim.handle(e) { c.textView.insertText(String(ch), replacementRange: NSRange(location: NSNotFound, length: 0)) }
+        }
+    }
+    private var caret: Int { c.textView.selectedRange().location }
+
+    func testDollarAndTillFind() {
+        load("one; two; three\nnext", caret: 0)
+        keys("d$"); XCTAssertEqual(storage.string, "\nnext")
+        load("one; two; three", caret: 0)
+        keys("dt;"); XCTAssertEqual(storage.string, "; two; three")
+        load("one; two; three", caret: 0)
+        keys("df;"); XCTAssertEqual(storage.string, " two; three")
+        load("one; two; three", caret: 0)
+        keys("d2t;"); XCTAssertEqual(storage.string, "; three")
+        load("one; two; three", caret: 0)
+        keys("ct;X"); XCTAssertEqual(storage.string, "X; two; three"); XCTAssertEqual(c.textView.vim.mode, .insert)
+    }
+
+    func testMotionsAndRepeat() {
+        load("a;b;c;d", caret: 0)
+        keys("f;"); XCTAssertEqual(caret, 1)
+        keys(";"); XCTAssertEqual(caret, 3)
+        keys(","); XCTAssertEqual(caret, 1)
+        keys("t;"); XCTAssertEqual(caret, 2, "t stops before the next ;")
+        keys("$F;"); XCTAssertEqual(caret, 5)
+        keys("T;"); XCTAssertEqual(caret, 4)
+        keys("dF;"); XCTAssertEqual(storage.string, "a;bc;d", "backward find: from the ; up to, not including, the cursor")
+    }
+
+    func testFindMissingCharDoesNothing() {
+        load("hello", caret: 0)
+        keys("dtz"); XCTAssertEqual(storage.string, "hello"); XCTAssertEqual(c.textView.vim.mode, .normal)
+        keys("vt;"); XCTAssertEqual(c.textView.vim.mode, .visual(kind: .char))
+        keys("fl"); XCTAssertEqual(c.textView.selectedRange(), NSRange(location: 0, length: 3), "visual f extends")
+    }
+}

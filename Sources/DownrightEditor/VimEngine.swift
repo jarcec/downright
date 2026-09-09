@@ -30,6 +30,7 @@ public final class VimEngine {
             if count > 0 { s += " \(count)" }
             if let op = pendingOperator { s += " \(op)" }
             if let pre = pendingPrefix { s += " \(pre)" }
+            if let f = pendingFind { s += " \(f)" }
             return s
         }
     }
@@ -53,6 +54,10 @@ public final class VimEngine {
     private var blockHeadCol = 0
     /// After `i`/`a` following an operator or in visual mode: waiting for the object key.
     private var pendingTextObject: Character? = nil
+    /// After `f` `F` `t` `T`: waiting for the character to find.
+    private var pendingFind: Character? = nil
+    /// Last find, for `;` (repeat) and `,` (reverse).
+    private var lastFind: (kind: Character, target: Character)? = nil
     /// Blockwise register (one entry per line) set by block-visual yank/delete.
     private var registerBlock: [String]? = nil
     /// Spaces inserted by `>`.
@@ -163,7 +168,20 @@ public final class VimEngine {
             } else { resetPending() }
             return
         }
+        if let kind = pendingFind {
+            pendingFind = nil
+            lastFind = (kind, ch)
+            findMotion(kind: kind, target: ch, from: caret, visual: false)
+            return
+        }
         if pendingOperator != nil, ch == "i" || ch == "a" { pendingTextObject = ch; return }
+        if "fFtT".contains(ch) { pendingFind = ch; return }
+        if ch == ";" || ch == "," {
+            guard let last = lastFind else { resetPending(); return }
+            let kind = ch == ";" ? last.kind : Self.reversed(last.kind)
+            findMotion(kind: kind, target: last.target, from: caret, visual: false)
+            return
+        }
         switch ch {
         case "i": enterInsert()
         case "a": moveCaret(by: 1, withinLine: true); enterInsert()
@@ -235,6 +253,49 @@ public final class VimEngine {
         count = 0
         pendingOperator = nil
         pendingPrefix = nil
+        pendingFind = nil
+    }
+
+    // MARK: - f / t character search
+
+    static func reversed(_ kind: Character) -> Character {
+        switch kind { case "f": return "F"; case "F": return "f"; case "t": return "T"; default: return "t" }
+    }
+
+    /// Position of the count-th `target` on the caret's line in the direction of `kind`,
+    /// adjusted for `t`/`T` (stop one short). Nil when absent.
+    private func findTarget(kind: Character, target: Character, from loc: Int) -> Int? {
+        let cr = lines.contentRange(ofLine: lines.line(containing: loc))
+        let s = text
+        guard let tu = target.utf16.first else { return nil }
+        let forward = kind == "f" || kind == "t"
+        let till = kind == "t" || kind == "T"
+        var remaining = max(1, count)
+        var p = loc
+        while remaining > 0 {
+            p += forward ? 1 : -1
+            guard p >= cr.location, p < cr.end else { return nil }
+            if s.character(at: p) == tu { remaining -= 1 }
+        }
+        return till ? (forward ? p - 1 : p + 1) : p
+    }
+
+    private func findMotion(kind: Character, target: Character, from loc: Int, visual: Bool) {
+        guard let dest = findTarget(kind: kind, target: target, from: loc) else { resetPending(); return }
+        let forward = kind == "f" || kind == "t"
+        count = 0
+        if visual {
+            applyVisualSelection(head: dest)
+            return
+        }
+        if let op = pendingOperator {
+            // Forward finds are inclusive of the destination; backward ones exclusive.
+            let range = forward ? NSRange(loc, to: min(dest + 1, text.length)) : NSRange(dest, to: loc)
+            operate(op, over: range)
+        } else {
+            setCaret(dest)
+            resetPending()
+        }
     }
 
     // MARK: - Visual mode
@@ -309,6 +370,18 @@ public final class VimEngine {
         if let pre = pendingPrefix {
             pendingPrefix = nil
             if pre == "g" && ch == "g" { visualMove(.top) }
+            return
+        }
+        if let kind = pendingFind {
+            pendingFind = nil
+            lastFind = (kind, ch)
+            findMotion(kind: kind, target: ch, from: currentHead, visual: true)
+            return
+        }
+        if "fFtT".contains(ch) { pendingFind = ch; return }
+        if ch == ";" || ch == "," {
+            guard let last = lastFind else { return }
+            findMotion(kind: ch == ";" ? last.kind : Self.reversed(last.kind), target: last.target, from: currentHead, visual: true)
             return
         }
         if let prefix = pendingTextObject {
