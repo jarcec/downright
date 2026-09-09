@@ -1,0 +1,44 @@
+import AppKit
+import SwiftUI
+
+struct SettingsView: View {
+    @AppStorage(Settings.showLineNumbersKey) private var showLineNumbers = true
+    @AppStorage(Settings.showOutlineKey) private var showOutline = true
+
+    var body: some View {
+        Form {
+            Section("Editor") {
+                Toggle("Show line numbers", isOn: $showLineNumbers)
+                Toggle("Show outline", isOn: $showOutline)
+            }
+        }
+        .formStyle(.grouped)
+        .frame(width: 380)
+        .fixedSize(horizontal: false, vertical: true)
+    }
+}
+
+/// Single shared Settings window (⌘,).
+@MainActor
+final class SettingsWindowController: NSWindowController {
+    static let shared = SettingsWindowController()
+
+    private init() {
+        let hosting = NSHostingController(rootView: SettingsView())
+        let window = NSWindow(contentViewController: hosting)
+        window.title = "Settings"
+        window.styleMask = [.titled, .closable]
+        window.isReleasedWhenClosed = false
+        window.setFrameAutosaveName("Settings")
+        super.init(window: window)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError() }
+
+    func show() {
+        window?.center()
+        showWindow(nil)
+        window?.makeKeyAndOrderFront(nil)
+    }
+}

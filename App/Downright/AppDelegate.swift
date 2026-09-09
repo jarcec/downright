@@ -1,10 +1,35 @@
 import AppKit
 import DownrightEditor
 
-@main
-final class AppDelegate: NSObject, NSApplicationDelegate {
+@MainActor
+final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     func applicationWillFinishLaunching(_ notification: Notification) {
+        Settings.registerDefaults()
         NSApp.mainMenu = MainMenu.build()
+        DebugLog.write("willFinishLaunching: lineNumbers=\(Settings.showLineNumbers) outline=\(Settings.showOutline)")
+    }
+
+    // MARK: - Settings actions (reachable from any window via the responder chain end)
+
+    @objc func showSettings(_ sender: Any?) {
+        SettingsWindowController.shared.show()
+    }
+
+    @objc func toggleLineNumbers(_ sender: Any?) {
+        Settings.showLineNumbers.toggle()
+    }
+
+    @objc func toggleOutline(_ sender: Any?) {
+        Settings.showOutline.toggle()
+    }
+
+    func validateMenuItem(_ item: NSMenuItem) -> Bool {
+        switch item.action {
+        case #selector(toggleLineNumbers(_:)): item.state = Settings.showLineNumbers ? .on : .off
+        case #selector(toggleOutline(_:)): item.state = Settings.showOutline ? .on : .off
+        default: break
+        }
+        return true
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -22,6 +47,8 @@ enum MainMenu {
         let appName = ProcessInfo.processInfo.processName
         let app = NSMenu(title: appName)
         app.addItem(withTitle: "About \(appName)", action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)), keyEquivalent: "")
+        app.addItem(.separator())
+        app.addItem(withTitle: "Settings…", action: #selector(AppDelegate.showSettings(_:)), keyEquivalent: ",")
         app.addItem(.separator())
         app.addItem(withTitle: "Hide \(appName)", action: #selector(NSApplication.hide(_:)), keyEquivalent: "h")
         let hideOthers = app.addItem(withTitle: "Hide Others", action: #selector(NSApplication.hideOtherApplications(_:)), keyEquivalent: "h")
@@ -101,6 +128,9 @@ enum MainMenu {
         let view = NSMenu(title: "View")
         let reveal = view.addItem(withTitle: "Reveal All Syntax", action: #selector(MarkdownTextView.toggleRevealAll(_:)), keyEquivalent: "r")
         reveal.keyEquivalentModifierMask = [.command, .shift]
+        view.addItem(.separator())
+        view.addItem(withTitle: "Show Line Numbers", action: #selector(AppDelegate.toggleLineNumbers(_:)), keyEquivalent: "l").keyEquivalentModifierMask = [.command, .shift]
+        view.addItem(withTitle: "Show Outline", action: #selector(AppDelegate.toggleOutline(_:)), keyEquivalent: "o").keyEquivalentModifierMask = [.command, .shift]
         view.addItem(.separator())
         view.addItem(withTitle: "Enter Full Screen", action: #selector(NSWindow.toggleFullScreen(_:)), keyEquivalent: "f").keyEquivalentModifierMask = [.command, .control]
         main.addItem(submenu(view))

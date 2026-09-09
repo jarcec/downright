@@ -23,6 +23,13 @@ Not exercised by this gate (needs typing; verify in first manual session): savin
 edit from the app back to a CLI-opened path. NSDocument's coordinated write through the
 Launch-Services-granted URL is the standard path and is not expected to differ.
 
+## Negative control
+
+Launching the binary directly — `Downright.app/Contents/MacOS/Downright file.md` — with the
+path as `argv` (no Launch Services involvement) produced *"The document could not be
+opened. You don't have permission."* The grant really does come from Launch Services and
+nothing else, which is why the shim must go through `open`.
+
 ## Notes
 
 - **Launch Services grants the sandbox extension for shell-opened paths**, exactly as

@@ -17,7 +17,11 @@ final class DecoratedLayoutFragment: NSTextLayoutFragment {
 
     override var layoutFragmentFrame: CGRect {
         var f = super.layoutFragmentFrame
-        if appearance == .hidden { f.size.height = 0 }
+        switch appearance {
+        case .hidden: f.size.height = 0
+        case .rule: f.size.height = max(f.size.height, 22)   // concealed text would collapse the line
+        default: break
+        }
         return f
     }
 
@@ -62,7 +66,8 @@ final class DecoratedLayoutFragment: NSTextLayoutFragment {
             fill(lineRect.insetBy(dx: -6, dy: 0), color: theme.frontmatterBackground, top: top, bottom: bottom, radius: 6, in: context)
         case .rule:
             context.setFillColor(theme.rule.cgColor)
-            context.fill(CGRect(x: lineRect.minX, y: lineRect.midY - 0.5, width: width, height: 1))
+            let mid = point.y + layoutFragmentFrame.height / 2
+            context.fill(CGRect(x: lineRect.minX, y: mid - 0.5, width: width, height: 1))
         }
         if quoteDepth > 0 {
             context.setFillColor(theme.quoteBar.cgColor)

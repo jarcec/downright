@@ -28,6 +28,11 @@ public final class EditorController: NSObject, NSTextViewDelegate, @preconcurren
     /// Debug counter for the TRD §6.6 budget: paragraphs invalidated by the last reveal change.
     public private(set) var lastRevealInvalidationCount = 0
 
+    /// Fired after every reparse (typing, reload). Chrome such as the outline listens.
+    public var onDocumentChange: (() -> Void)?
+    /// Fired after every selection change and after reparses.
+    public var onSelectionChange: (() -> Void)?
+
     public var revealAll = false {
         didSet {
             storageDelegate.revealAll = revealAll
@@ -80,6 +85,11 @@ public final class EditorController: NSObject, NSTextViewDelegate, @preconcurren
         textView.isAutomaticDataDetectionEnabled = false
         textView.isContinuousSpellCheckingEnabled = true
         textView.smartInsertDeleteEnabled = false
+        // NSTextView's own ruler integration is TextKit 1-only; letting it touch the
+        // ruler makes it access `layoutManager`, which silently downgrades the view to
+        // TextKit 1 and detaches our stack. Our LineNumberRulerView never needs it.
+        textView.usesRuler = false
+        textView.isRulerVisible = false
         textView.font = theme.bodyFont
         textView.textColor = theme.textColor
         textView.typingAttributes = [.font: theme.bodyFont, .foregroundColor: theme.textColor]
@@ -110,6 +120,8 @@ public final class EditorController: NSObject, NSTextViewDelegate, @preconcurren
         pendingEdit = nil
         replaceDocument(with: MarkdownParser.parse(textStorage.string, dialect: dialect))
         updateReveal(extraInvalidation: [NSRange(location: 0, length: textStorage.length)])
+        onDocumentChange?()
+        onSelectionChange?()
     }
 
     private func replaceDocument(with doc: Document) {
@@ -132,6 +144,8 @@ public final class EditorController: NSObject, NSTextViewDelegate, @preconcurren
         updateReveal(extraInvalidation: [dirty])
         let ms = (CFAbsoluteTimeGetCurrent() - t) * 1000
         if ms > 8 { log.debug("reparse \(self.textStorage.length) chars: \(ms, format: .fixed(precision: 1)) ms; dirty \(dirty.location)+\(dirty.length)") }
+        onDocumentChange?()
+        onSelectionChange?()
     }
 
     /// Smallest top-level range whose block structure may have changed: from the block
@@ -227,6 +241,57 @@ public final class EditorController: NSObject, NSTextViewDelegate, @preconcurren
     public func textViewDidChangeSelection(_ notification: Notification) {
         guard pendingEdit == nil else { return }   // the edit flush recomputes reveal itself
         updateReveal()
+        onSelectionChange?()
+    }
+
+    // MARK: - Outline support
+
+    public struct Heading: Equatable {
+        public var level: Int
+        public var title: String
+        public var offset: Int
+    }
+
+    /// Headings in document order, including those nested in containers.
+    public func headings() -> [Heading] {
+        var out: [Heading] = []
+        let source = textStorage.string
+        func walk(_ blocks: [Block]) {
+            for b in blocks {
+                switch b.kind {
+                case .heading(let level), .setextHeading(let level, _):
+                    let title = b.contentRanges.map { (source as NSString).substring(with: $0) }.joined(separator: " ")
+                    out.append(Heading(level: level, title: Self.stripInlineMarkers(title), offset: b.range.location))
+                default:
+                    break
+                }
+                walk(b.children)
+            }
+        }
+        walk(document.blocks)
+        return out
+    }
+
+    /// Cheap cleanup for outline titles: drop emphasis/code markers, keep link text.
+    static func stripInlineMarkers(_ s: String) -> String {
+        var t = s.replacingOccurrences(of: "**", with: "").replacingOccurrences(of: "__", with: "")
+        t = t.replacingOccurrences(of: "`", with: "").replacingOccurrences(of: "~~", with: "")
+        if let re = try? NSRegularExpression(pattern: "\\[([^\\]]*)\\]\\([^)]*\\)") {
+            t = re.stringByReplacingMatches(in: t, range: NSRange(location: 0, length: t.utf16.count), withTemplate: "$1")
+        }
+        return t.trimmingCharacters(in: .whitespaces)
+    }
+
+    /// Place the caret at `offset` and scroll so that line sits near the top.
+    public func scroll(to offset: Int) {
+        let target = NSRange(location: min(offset, textStorage.length), length: 0)
+        textView.setSelectedRange(target)
+        textView.scrollRangeToVisible(target)
+        guard let loc = contentStorage.location(contentStorage.documentRange.location, offsetBy: target.location),
+              let fragment = layoutManager.textLayoutFragment(for: loc) else { return }
+        let y = fragment.layoutFragmentFrame.minY + textView.textContainerInset.height - 24
+        textView.scroll(NSPoint(x: 0, y: max(0, y)))
+        textView.window?.makeFirstResponder(textView)
     }
 
     public func textView(_ textView: NSTextView, clickedOnLink link: Any, at charIndex: Int) -> Bool {

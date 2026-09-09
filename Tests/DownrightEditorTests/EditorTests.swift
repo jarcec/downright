@@ -88,4 +88,34 @@ final class EditorTests: XCTestCase {
         XCTAssertEqual(c.textView.string, "# T\nSome **bold**.!")
         XCTAssertEqual(c.document.blocks.count, 2)
     }
+
+    func testLineNumberGutterKeepsTextKit2AndRendersText() {
+        let (c, _) = make("# T\nline\n")
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 400), styleMask: [.titled], backing: .buffered, defer: false)
+        let container = NSView(frame: NSRect(x: 0, y: 0, width: 600, height: 400))
+        let gutter = LineNumberGutterView(controller: c)
+        c.scrollView.translatesAutoresizingMaskIntoConstraints = false
+        container.addSubview(gutter); container.addSubview(c.scrollView)
+        NSLayoutConstraint.activate([
+            gutter.leadingAnchor.constraint(equalTo: container.leadingAnchor), gutter.topAnchor.constraint(equalTo: container.topAnchor), gutter.bottomAnchor.constraint(equalTo: container.bottomAnchor),
+            c.scrollView.leadingAnchor.constraint(equalTo: gutter.trailingAnchor), c.scrollView.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+            c.scrollView.topAnchor.constraint(equalTo: container.topAnchor), c.scrollView.bottomAnchor.constraint(equalTo: container.bottomAnchor),
+        ])
+        window.contentView = container
+        container.layoutSubtreeIfNeeded()
+        XCTAssertNotNil(c.textView.textLayoutManager)
+        XCTAssertTrue(c.textView.textLayoutManager === c.layoutManager)
+        XCTAssertGreaterThan(gutter.thickness, 20)
+        XCTAssertEqual(c.scrollView.contentView.bounds.origin.x, 0, "clip view must not be shifted by the gutter")
+        // Render and make sure the text actually produced dark pixels
+        guard let rep = c.scrollView.bitmapImageRepForCachingDisplay(in: c.scrollView.bounds) else { return XCTFail("no bitmap") }
+        c.scrollView.cacheDisplay(in: c.scrollView.bounds, to: rep)
+        var dark = 0
+        for y in stride(from: 0, to: Int(rep.pixelsHigh), by: 4) {
+            for x in stride(from: 0, to: Int(rep.pixelsWide), by: 4) {
+                if let col = rep.colorAt(x: x, y: y), col.brightnessComponent < 0.5 { dark += 1 }
+            }
+        }
+        XCTAssertGreaterThan(dark, 10, "text should be visible next to the gutter")
+    }
 }
