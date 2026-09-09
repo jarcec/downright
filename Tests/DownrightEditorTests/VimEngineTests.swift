@@ -152,7 +152,7 @@ final class VimVisualTests: XCTestCase {
     func testCharwiseSelectAndDelete() {
         load("one two three", caret: 4)
         keys("v")
-        XCTAssertEqual(c.textView.vim.mode, .visual(linewise: false))
+        XCTAssertEqual(c.textView.vim.mode, .visual(kind: .char))
         XCTAssertEqual(sel, NSRange(location: 4, length: 1), "v selects the character under the cursor")
         keys("e")
         XCTAssertEqual(sel, NSRange(location: 4, length: 3), "extends to the end of 'two'")
@@ -206,7 +206,88 @@ final class VimVisualTests: XCTestCase {
         XCTAssertEqual(sel, NSRange(location: 0, length: 2))
         keys("V")
         XCTAssertEqual(sel, NSRange(location: 0, length: 3), "V from charwise becomes linewise over the same line")
-        keys("v"); XCTAssertEqual(c.textView.vim.mode, .visual(linewise: false))
+        keys("v"); XCTAssertEqual(c.textView.vim.mode, .visual(kind: .char))
         keys("v"); XCTAssertEqual(c.textView.vim.mode, .normal)
+    }
+}
+
+
+@MainActor
+final class VimObjectsAndBlockTests: XCTestCase {
+    private var c: EditorController!
+    private var storage: NSTextStorage!
+    private func load(_ text: String, caret: Int = 0) {
+        storage = NSTextStorage(string: text)
+        c = EditorController(textStorage: storage)
+        c.layoutManager.textContainer?.size = CGSize(width: 600, height: 1e7)
+        c.textView.vim.isEnabled = true
+        c.textView.setSelectedRange(NSRange(location: caret, length: 0))
+    }
+    private func key(_ ch: String, code: UInt16 = 0, flags: NSEvent.ModifierFlags = []) {
+        let e = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: flags, timestamp: 0, windowNumber: 0, context: nil,
+                                 characters: ch, charactersIgnoringModifiers: ch, isARepeat: false, keyCode: code)!
+        if !c.textView.vim.handle(e) { c.textView.insertText(ch, replacementRange: NSRange(location: NSNotFound, length: 0)) }
+    }
+    private func keys(_ s: String) { for ch in s { key(String(ch)) } }
+    private func ctrlV() { key("v", flags: .control) }
+    private func escape() { key("\u{1B}", code: 53) }
+    private var sel: NSRange { c.textView.selectedRange() }
+
+    func testTextObjectsWithOperators() {
+        load("call(foo, \"bar baz\") end", caret: 6)
+        keys("diw"); XCTAssertEqual(storage.string, "call(, \"bar baz\") end")
+        keys("u")
+        load("call(foo, \"bar baz\") end", caret: 12)
+        keys("di\""); XCTAssertEqual(storage.string, "call(foo, \"\") end")
+        load("call(foo, \"bar baz\") end", caret: 12)
+        keys("da("); XCTAssertEqual(storage.string, "call end")
+        load("one two  three", caret: 4)
+        keys("daw"); XCTAssertEqual(storage.string, "one three")
+        load("p1\np1 more\n\np2\n", caret: 0)
+        keys("dap"); XCTAssertEqual(storage.string, "p2\n")
+        load("a [b [c] d] e", caret: 7)
+        keys("ci]"); XCTAssertEqual(storage.string, "a [b [] d] e"); XCTAssertEqual(c.textView.vim.mode, .insert)
+    }
+
+    func testTextObjectsInVisual() {
+        load("say \"hello there\" now", caret: 7)
+        keys("vi\"")
+        XCTAssertEqual((storage.string as NSString).substring(with: sel), "hello there")
+        keys("a\"")
+        XCTAssertEqual((storage.string as NSString).substring(with: sel), "\"hello there\"")
+        keys("d"); XCTAssertEqual(storage.string, "say  now")
+    }
+
+    func testIndentAndToggleCase() {
+        load("a\nb\nc\n", caret: 0)
+        keys("Vj>"); XCTAssertEqual(storage.string, "  a\n  b\nc\n")
+        keys("<<"); XCTAssertEqual(storage.string, "a\n  b\nc\n")
+        keys("j>>"); XCTAssertEqual(storage.string, "a\n    b\nc\n")
+        load("Hello World", caret: 0)
+        keys("3~"); XCTAssertEqual(storage.string, "hELlo World"); XCTAssertEqual(sel.location, 3)
+        keys("v$~"); XCTAssertEqual(storage.string, "hELLO wORLD")
+    }
+
+    func testBlockVisualDeleteAndPaste() {
+        load("abcd\nefgh\nij\nklmn\n", caret: 1)
+        ctrlV()
+        XCTAssertEqual(c.textView.vim.mode, .visual(kind: .block))
+        keys("ljj")   // cols 1-2, rows 0-2 (row "ij" only reaches col 1)
+        XCTAssertEqual(c.textView.selectedRanges.count, 3)
+        keys("d")
+        XCTAssertEqual(storage.string, "ad\neh\ni\nklmn\n")
+        keys("G")     // last line, paste the block at column 0
+        keys("P")
+        XCTAssertEqual(storage.string, "ad\neh\ni\nbcklmn\nfg\nj\n")
+    }
+
+    func testBlockVisualIndentAndSwap() {
+        load("x\ny\nz\n", caret: 0)
+        ctrlV(); keys("j>")
+        XCTAssertEqual(storage.string, "  x\n  y\nz\n")
+        ctrlV(); keys("lo")
+        XCTAssertEqual(c.textView.vim.mode, .visual(kind: .block))
+        escape()
+        XCTAssertEqual(c.textView.vim.mode, .normal)
     }
 }
