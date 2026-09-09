@@ -51,6 +51,8 @@ public struct ParagraphDecoration {
     public var alwaysConceal: [NSRange] = []
     /// Line breaking for the paragraph; tables clip instead of wrapping.
     public var lineBreakMode: NSLineBreakMode = .byWordWrapping
+    /// Table rows: the cells' content ranges. Reveal is per cell, not per line.
+    public var cellRanges: [NSRange] = []
     /// Applied only when concealed: same-length character substitutions (plan D4).
     public var substitutions: [(offset: Int, char: unichar)] = []
     /// Applied only when concealed, after substitutions (e.g. sizing a bullet glyph).

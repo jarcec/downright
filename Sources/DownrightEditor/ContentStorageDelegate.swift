@@ -8,6 +8,8 @@ public final class MarkdownContentStorageDelegate: NSObject, @preconcurrency NST
     public var engine: DecorationEngine?
     public var revealed: [NSRange] = []
     public var revealAll = false
+    /// Caret location; decides which table cell reveals its markers.
+    public var selectionLocation: Int? = nil
 
     public func isRevealed(_ range: NSRange) -> Bool {
         if revealAll { return true }
@@ -23,7 +25,16 @@ public final class MarkdownContentStorageDelegate: NSObject, @preconcurrency NST
         let revealed = isRevealed(range)
 
         for run in d.styles { Self.apply(run, to: out, base: range) }
-        if revealed {
+        if revealed, !d.cellRanges.isEmpty, !revealAll {
+            // Table row: only the caret's cell shows its markers; the others stay rendered.
+            let cell = selectionLocation.flatMap { loc in d.cellRanges.first { $0.location <= loc && loc <= $0.end } }
+            func inCell(_ r: NSRange) -> Bool { cell.map { NSIntersectionRange($0, r).length > 0 || ($0.length == 0 && r.location == $0.location) } ?? false }
+            for run in d.markerStyles where inCell(run.range) { Self.apply(run, to: out, base: range) }
+            for r in d.conceal where !inCell(r) {
+                guard let rel = Self.relative(r, base: range) else { continue }
+                out.addAttributes([.font: Theme.concealedFont, .foregroundColor: Theme.concealedColor], range: rel)
+            }
+        } else if revealed {
             for run in d.markerStyles { Self.apply(run, to: out, base: range) }
         } else {
             for (offset, ch) in d.substitutions {

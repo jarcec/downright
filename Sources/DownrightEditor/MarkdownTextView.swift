@@ -69,21 +69,36 @@ public final class MarkdownTextView: NSTextView {
     // MARK: - Return: list continuation
 
     public override func insertNewline(_ sender: Any?) {
-        guard let controller, selectedRange().length == 0, controller.continueList(at: selectedRange().location, in: self) else {
-            super.insertNewline(sender); return
-        }
+        guard let controller else { return super.insertNewline(sender) }
+        if selectedRange().length == 0, controller.tableInsertRow(at: selectedRange().location) { return }
+        if selectedRange().length == 0, controller.continueList(at: selectedRange().location, in: self) { return }
+        super.insertNewline(sender)
     }
 
     public override func insertTab(_ sender: Any?) {
-        guard let controller, controller.indentListItem(at: selectedRange().location, by: 1, in: self) else {
-            super.insertTab(sender); return
-        }
+        guard let controller else { return super.insertTab(sender) }
+        if controller.tableTab(at: selectedRange().location, forward: true) { return }
+        if controller.indentListItem(at: selectedRange().location, by: 1, in: self) { return }
+        super.insertTab(sender)
     }
 
     public override func insertBacktab(_ sender: Any?) {
-        guard let controller, controller.indentListItem(at: selectedRange().location, by: -1, in: self) else {
-            super.insertBacktab(sender); return
-        }
+        guard let controller else { return super.insertBacktab(sender) }
+        if controller.tableTab(at: selectedRange().location, forward: false) { return }
+        if controller.indentListItem(at: selectedRange().location, by: -1, in: self) { return }
+        super.insertBacktab(sender)
+    }
+
+    // Tables: keep the caret out of concealed structure and off the hidden delimiter row.
+    public override func moveRight(_ sender: Any?) { super.moveRight(sender); controller?.snapCaretOutOfSeparator(movingRight: true) }
+    public override func moveLeft(_ sender: Any?) { super.moveLeft(sender); controller?.snapCaretOutOfSeparator(movingRight: false) }
+    public override func moveDown(_ sender: Any?) {
+        super.moveDown(sender)
+        if let c = controller, c.isOnTableDelimiter(selectedRange().location) { super.moveDown(sender) }
+    }
+    public override func moveUp(_ sender: Any?) {
+        super.moveUp(sender)
+        if let c = controller, c.isOnTableDelimiter(selectedRange().location) { super.moveUp(sender) }
     }
 
     // MARK: - Context menu

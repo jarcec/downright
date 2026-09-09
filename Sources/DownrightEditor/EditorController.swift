@@ -130,6 +130,96 @@ public final class EditorController: NSObject, NSTextViewDelegate, @preconcurren
         lines = LineIndex(textStorage.string)
         engine = DecorationEngine(document: document, lines: lines, theme: theme)
         storageDelegate.engine = engine
+        // Carry the caret's table cell into the new engine so widths stay right while typing.
+        let caret = textView.selectedRange().location
+        if let h = tableHit(at: caret), let ci = h.cellIndex {
+            engine.setRevealedCell(.init(blockStart: h.block.range.location, rowIndex: h.rowIndex, cellIndex: ci))
+        }
+    }
+
+    // MARK: - Tables: hit-testing and editing
+
+    public struct TableHit {
+        public var block: Block
+        public var table: Table
+        /// Index into `table.allRows` (0 = header). `nil` when on the delimiter row.
+        public var rowIndex: Int
+        public var row: TableRow
+        /// Cell containing the caret (caret at a cell boundary counts), else nil (in a separator).
+        public var cellIndex: Int?
+    }
+
+    public func tableHit(at offset: Int) -> TableHit? {
+        guard let block = document.path(containing: offset).last, case .table(let table) = block.kind else { return nil }
+        let rows = table.allRows
+        guard let ri = rows.firstIndex(where: { $0.range.location <= offset && offset <= $0.range.end }) else { return nil }
+        let row = rows[ri]
+        let ci = row.cells.firstIndex { $0.range.location <= offset && offset <= $0.range.end }
+        return TableHit(block: block, table: table, rowIndex: ri, row: row, cellIndex: ci)
+    }
+
+    public func isOnTableDelimiter(_ offset: Int) -> Bool {
+        guard let block = document.path(containing: offset).last, case .table(let t) = block.kind else { return false }
+        return t.delimiterRow.location <= offset && offset <= t.delimiterRow.end
+    }
+
+    /// Tab / ⇧Tab inside a table: select the next / previous cell's content.
+    func tableTab(at offset: Int, forward: Bool) -> Bool {
+        guard let h = tableHit(at: offset) else { return false }
+        let rows = h.table.allRows
+        var ri = h.rowIndex
+        var ci = h.cellIndex ?? (forward ? -1 : h.row.cells.count)
+        if forward {
+            ci += 1
+            if ci >= rows[ri].cells.count { ri += 1; ci = 0 }
+            guard ri < rows.count, ci < rows[ri].cells.count else { return true }
+        } else {
+            ci -= 1
+            if ci < 0 { ri -= 1; guard ri >= 0 else { return true }; ci = rows[ri].cells.count - 1 }
+            guard ci >= 0 else { return true }
+        }
+        textView.setSelectedRange(rows[ri].cells[ci].range)
+        textView.scrollRangeToVisible(rows[ri].cells[ci].range)
+        return true
+    }
+
+    /// Return inside a table: insert an empty row below the current one (below the delimiter
+    /// when on the header) and put the caret in its first cell.
+    func tableInsertRow(at offset: Int) -> Bool {
+        guard let h = tableHit(at: offset) else { return false }
+        let ns = textStorage.string as NSString
+        let leadingPipe = h.table.header.separators.first.map { $0.length > 0 } ?? true
+        let trailingPipe = h.table.header.separators.last.map { $0.length > 0 } ?? true
+        let columns = h.table.columnCount
+        var template = leadingPipe ? "| " : ""
+        template += Array(repeating: " ", count: max(1, columns)).joined(separator: " | ")
+        template += trailingPipe ? " |" : ""
+        let insertLine = h.rowIndex == 0 ? h.table.delimiterRow : h.row.range
+        let lineEnd = insertLine.end
+        let needsNewlineAfter = lineEnd >= ns.length || ns.character(at: lineEnd) != 10
+        let insertion = "\n" + template + (needsNewlineAfter ? "" : "")
+        let at = NSRange(location: lineEnd, length: 0)
+        guard textView.shouldChangeText(in: at, replacementString: insertion) else { return false }
+        textStorage.replaceCharacters(in: at, with: insertion)
+        textView.didChangeText()
+        let caret = lineEnd + 1 + (leadingPipe ? 2 : 0)
+        textView.setSelectedRange(NSRange(location: caret, length: 0))
+        return true
+    }
+
+    /// After a horizontal move, keep the caret out of concealed table structure: snap to
+    /// the adjacent cell boundary in the direction of travel.
+    func snapCaretOutOfSeparator(movingRight: Bool) {
+        let loc = textView.selectedRange().location
+        guard textView.selectedRange().length == 0, let h = tableHit(at: loc), h.cellIndex == nil else { return }
+        let cells = h.row.cells
+        if movingRight {
+            if let next = cells.first(where: { $0.range.location > loc }) { textView.setSelectedRange(NSRange(location: next.range.location, length: 0)) }
+            else if let last = cells.last { textView.setSelectedRange(NSRange(location: last.range.end, length: 0)) }
+        } else {
+            if let prev = cells.last(where: { $0.range.end < loc }) { textView.setSelectedRange(NSRange(location: prev.range.end, length: 0)) }
+            else if let first = cells.first { textView.setSelectedRange(NSRange(location: first.range.location, length: 0)) }
+        }
     }
 
     private func flushPendingEdit() {
@@ -222,10 +312,25 @@ public final class EditorController: NSObject, NSTextViewDelegate, @preconcurren
         let newRevealed = RevealPolicy.revealedRanges(selections: selections, document: document, lines: lines)
         let oldRevealed = storageDelegate.revealed
         storageDelegate.revealed = newRevealed
+        let caret = textView.selectedRange().location
+        storageDelegate.selectionLocation = caret
         var toInvalidate = extraInvalidation
         if newRevealed != oldRevealed {
             // Only paragraphs entering or leaving the revealed set change appearance
             toInvalidate += Self.symmetricDifference(oldRevealed, newRevealed)
+        }
+        // Tables: the caret's cell decides what reveals and how wide its column is.
+        let hit = tableHit(at: caret)
+        let newCell = hit.flatMap { h in h.cellIndex.map { DecorationEngine.RevealedCell(blockStart: h.block.range.location, rowIndex: h.rowIndex, cellIndex: $0) } }
+        if newCell != engine.revealedCell {
+            if let old = engine.revealedCell, let block = document.path(containing: old.blockStart).last(where: { if case .table = $0.kind { return true }; return false }) {
+                toInvalidate.append(block.range)
+            }
+            engine.setRevealedCell(newCell)
+            if let h = hit { toInvalidate.append(h.block.range) }
+        } else if let h = hit {
+            toInvalidate.append(lines.paragraphRange(ofLine: lines.line(containing: caret)))
+            _ = h
         }
         lastRevealInvalidationCount = toInvalidate.reduce(0) { $0 + max(1, $1.length / 40) }
         invalidate(toInvalidate)

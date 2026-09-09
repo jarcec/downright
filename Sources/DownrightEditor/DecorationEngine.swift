@@ -11,6 +11,28 @@ public final class DecorationEngine {
     private var cache: [Int: ParagraphDecoration] = [:]
     private var tableLayouts: [Int: TableLayout] = [:]
     private let spaceWidth: CGFloat
+
+    /// The table cell under the caret, identified by table block start, row index into
+    /// `allRows`, and cell index. It is measured with its markers visible so the column
+    /// widens instead of the text overflowing.
+    public private(set) var revealedCell: RevealedCell? = nil
+    public struct RevealedCell: Equatable {
+        public var blockStart: Int
+        public var rowIndex: Int
+        public var cellIndex: Int
+        public init(blockStart: Int, rowIndex: Int, cellIndex: Int) { self.blockStart = blockStart; self.rowIndex = rowIndex; self.cellIndex = cellIndex }
+    }
+
+    public func setRevealedCell(_ cell: RevealedCell?) {
+        guard cell != revealedCell else { return }
+        for start in [revealedCell?.blockStart, cell?.blockStart].compactMap({ $0 }) {
+            tableLayouts[start] = nil
+            if let block = document.path(containing: start).last(where: { if case .table = $0.kind { return true }; return false }) {
+                for key in cache.keys where block.range.contains(key) { cache[key] = nil }
+            }
+        }
+        revealedCell = cell
+    }
     /// Horizontal padding on each side of a cell's text.
     static let cellGutter: CGFloat = 10
 
@@ -224,36 +246,47 @@ public final class DecorationEngine {
         var columnWidths: [CGFloat]
         /// Column rule positions relative to the paragraph's left edge; `count == columns + 1`.
         var boundaries: [CGFloat]
+        /// Rendered width of each cell, `[row][cell]`, matching `Table.allRows`.
+        var cellWidths: [[CGFloat]]
     }
 
-    /// Column widths from the widest rendered cell in each column (markers concealed).
+    /// Column widths from the widest rendered cell in each column. Markers are concealed
+    /// except in the revealed cell, which is measured as the user sees it.
     private func tableLayout(for table: Table, blockStart: Int) -> TableLayout {
         if let hit = tableLayouts[blockStart] { return hit }
         let columns = table.allRows.map(\.cells.count).max() ?? 0
         var widths = [CGFloat](repeating: 24, count: columns)
+        var cellWidths: [[CGFloat]] = []
         for (ri, row) in table.allRows.enumerated() {
-            for (ci, cell) in row.cells.enumerated() where ci < columns {
-                widths[ci] = max(widths[ci], ceil(measure(cell, header: ri == 0)))
+            var rowWidths: [CGFloat] = []
+            for (ci, cell) in row.cells.enumerated() {
+                let revealed = revealedCell.map { $0.blockStart == blockStart && $0.rowIndex == ri && $0.cellIndex == ci } ?? false
+                let w = ceil(measure(cell, header: ri == 0, markersVisible: revealed))
+                rowWidths.append(w)
+                if ci < columns { widths[ci] = max(widths[ci], w) }
             }
+            cellWidths.append(rowWidths)
         }
         var boundaries: [CGFloat] = [0]
         for w in widths { boundaries.append(boundaries.last! + w + 2 * Self.cellGutter) }
-        let layout = TableLayout(columnWidths: widths, boundaries: boundaries)
+        let layout = TableLayout(columnWidths: widths, boundaries: boundaries, cellWidths: cellWidths)
         tableLayouts[blockStart] = layout
         return layout
     }
 
-    /// Rendered width of a cell: its inline styles applied, markers concealed.
-    private func measure(_ cell: TableCell, header: Bool) -> CGFloat {
+    /// Rendered width of a cell with its inline styles applied.
+    private func measure(_ cell: TableCell, header: Bool, markersVisible: Bool) -> CGFloat {
         guard cell.range.length > 0 else { return 0 }
         let source = (document.sourceString as NSString).substring(with: cell.range)
         let out = NSMutableAttributedString(string: source, attributes: [.font: header ? theme.bodyFont.adding(.bold) : theme.bodyFont])
         var d = ParagraphDecoration()
         inlineStyles(cell.inlines, cr: cell.range, into: &d)
         for run in d.styles { MarkdownContentStorageDelegate.apply(run, to: out, base: cell.range) }
-        for r in d.conceal {
-            if let rel = MarkdownContentStorageDelegate.relative(r, base: cell.range) {
-                out.addAttributes([.font: Theme.concealedFont], range: rel)
+        if !markersVisible {
+            for r in d.conceal {
+                if let rel = MarkdownContentStorageDelegate.relative(r, base: cell.range) {
+                    out.addAttributes([.font: Theme.concealedFont], range: rel)
+                }
             }
         }
         return out.size().width
@@ -275,6 +308,7 @@ public final class DecorationEngine {
         let layout = tableLayout(for: table, blockStart: block.range.location)
         let gutter = Self.cellGutter
         d.role = .tableRow(boundaries: layout.boundaries, header: isHeader, first: isHeader, last: rowIndex == rows.count - 1)
+        d.cellRanges = row.cells.map(\.range)
 
         // Cell text: bold header, inline styles, markers concealable per cell.
         for cell in row.cells {
@@ -285,7 +319,7 @@ public final class DecorationEngine {
         // Padding per cell from its alignment.
         func padding(_ ci: Int) -> (before: CGFloat, after: CGFloat) {
             guard ci < row.cells.count, ci < layout.columnWidths.count else { return (0, 0) }
-            let extra = max(0, layout.columnWidths[ci] - ceil(measure(row.cells[ci], header: isHeader)))
+            let extra = max(0, layout.columnWidths[ci] - layout.cellWidths[rowIndex][ci])
             let align = ci < table.alignments.count ? table.alignments[ci] : .none
             switch align {
             case .right: return (extra, 0)
