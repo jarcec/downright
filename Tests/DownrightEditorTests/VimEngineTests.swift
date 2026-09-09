@@ -291,3 +291,38 @@ final class VimObjectsAndBlockTests: XCTestCase {
         XCTAssertEqual(c.textView.vim.mode, .normal)
     }
 }
+
+@MainActor
+final class VimSpecialKeyTests: XCTestCase {
+    func testArrowsHomeEndAndForwardDelete() {
+        let storage = NSTextStorage(string: "one two\nthree four\n")
+        let c = EditorController(textStorage: storage)
+        c.layoutManager.textContainer?.size = CGSize(width: 600, height: 1e7)
+        c.textView.vim.isEnabled = true
+        c.textView.setSelectedRange(NSRange(location: 0, length: 0))
+        func key(_ scalar: Int, code: UInt16 = 0) {
+            let s = String(UnicodeScalar(UInt32(scalar))!)
+            let e = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [.function], timestamp: 0, windowNumber: 0, context: nil, characters: s, charactersIgnoringModifiers: s, isARepeat: false, keyCode: code)!
+            _ = c.textView.vim.handle(e)
+        }
+        func keys(_ s: String) {
+            for ch in s {
+                let e = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0, windowNumber: 0, context: nil, characters: String(ch), charactersIgnoringModifiers: String(ch), isARepeat: false, keyCode: 0)!
+                _ = c.textView.vim.handle(e)
+            }
+        }
+        var caret: Int { c.textView.selectedRange().location }
+        key(NSRightArrowFunctionKey); key(NSRightArrowFunctionKey); XCTAssertEqual(caret, 2)
+        key(NSDownArrowFunctionKey); XCTAssertEqual(caret, 10)
+        key(NSEndFunctionKey); XCTAssertEqual(caret, 18)
+        key(NSHomeFunctionKey); XCTAssertEqual(caret, 8)
+        key(NSUpArrowFunctionKey); XCTAssertEqual(caret, 0)
+        key(NSDeleteFunctionKey); XCTAssertEqual(storage.string, "ne two\nthree four\n")
+        keys("3"); key(NSRightArrowFunctionKey); XCTAssertEqual(caret, 3, "counts apply to arrows too")
+        // Visual mode extends with arrows
+        keys("v"); key(NSRightArrowFunctionKey); key(NSRightArrowFunctionKey)
+        XCTAssertEqual(c.textView.selectedRange(), NSRange(location: 3, length: 3))
+        key(NSDeleteFunctionKey); XCTAssertEqual(storage.string, "ne \nthree four\n")
+        XCTAssertEqual(c.textView.vim.mode, .normal)
+    }
+}

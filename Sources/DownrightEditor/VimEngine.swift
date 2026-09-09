@@ -90,6 +90,14 @@ public final class VimEngine {
                 if event.charactersIgnoringModifiers == "v" { if kind == .block { exitVisual() } else { switchVisual(to: .block) }; return true }
                 return false
             }
+            if let special = Self.specialKey(event) {
+                switch special {
+                case .motion(let m): resetPendingKeepCount(); visualMove(m); onStateChange?()
+                case .forwardDelete: visualOperate("d"); onStateChange?()
+                case .passThrough: return false
+                }
+                return true
+            }
             guard let s = event.charactersIgnoringModifiers, let ch = s.first else { return true }
             visual(ch, kind: kind)
             return true
@@ -101,11 +109,38 @@ public final class VimEngine {
                 if event.charactersIgnoringModifiers == "v" { enterVisual(kind: .block); onStateChange?(); return true }
                 return false
             }
+            if let special = Self.specialKey(event) {
+                switch special {
+                case .motion(let m): motion(m); onStateChange?()
+                case .forwardDelete: deleteChars(forward: true); onStateChange?()
+                case .passThrough: return false
+                }
+                return true
+            }
             guard let s = event.charactersIgnoringModifiers, let ch = s.first else { return true }
             normal(ch)
             return true
         }
     }
+
+    /// Arrow, Home/End and forward-delete keys, so vim mode does not strand keyboard habits.
+    enum SpecialKey { case motion(Motion), forwardDelete, passThrough }
+    static func specialKey(_ event: NSEvent) -> SpecialKey? {
+        guard let s = event.charactersIgnoringModifiers, let u = s.unicodeScalars.first?.value else { return nil }
+        switch Int(u) {
+        case NSLeftArrowFunctionKey: return .motion(.left)
+        case NSRightArrowFunctionKey: return .motion(.right)
+        case NSUpArrowFunctionKey: return .motion(.up)
+        case NSDownArrowFunctionKey: return .motion(.down)
+        case NSHomeFunctionKey: return .motion(.lineStart)
+        case NSEndFunctionKey: return .motion(.lineEnd)
+        case NSDeleteFunctionKey: return .forwardDelete
+        case NSPageUpFunctionKey, NSPageDownFunctionKey: return .passThrough
+        default: return nil
+        }
+    }
+
+    private func resetPendingKeepCount() { pendingOperator = nil; pendingPrefix = nil; pendingTextObject = nil }
 
     // MARK: - Normal mode
 
