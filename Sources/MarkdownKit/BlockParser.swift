@@ -812,7 +812,8 @@ final class BlockParser {
 
     private func buildTable(from lines: [NSRange], delimiterRow: NSRange) -> Table {
         let header = splitRow(lines[0])
-        let delimiterCells = splitRow(delimiterRow).cells
+        let delimiter = splitRow(delimiterRow)
+        let delimiterCells = delimiter.cells
         var alignments: [TableAlignment] = delimiterCells.map { cell in
             let t = buf.string(cell.range)
             let l = t.hasPrefix(":"), r = t.hasSuffix(":")
@@ -825,7 +826,7 @@ final class BlockParser {
         }
         while alignments.count < header.cells.count { alignments.append(.none) }
         let rows = lines.dropFirst(2).map { splitRow($0) }
-        return Table(header: header, delimiterRow: delimiterRow, alignments: alignments, rows: Array(rows))
+        return Table(header: header, delimiterRow: delimiterRow, delimiter: delimiter, alignments: alignments, rows: Array(rows))
     }
 
     private func cellCount(_ r: NSRange) -> Int {

@@ -31,7 +31,7 @@ public struct TaskMarker: Sendable, Equatable {
     public var range: NSRange
 }
 
-public enum TableAlignment: Sendable, Equatable {
+public enum TableAlignment: Sendable, Hashable {
     case none, left, center, right
 }
 
@@ -59,11 +59,15 @@ public struct Table: Sendable {
     public var header: TableRow
     /// The `|---|:-:|` line (excluding newline).
     public var delimiterRow: NSRange
+    /// The delimiter line split like a row (cells are the alignment tokens).
+    public var delimiter: TableRow
     public var alignments: [TableAlignment]
     public var rows: [TableRow]
     public var columnCount: Int { header.cells.count }
-    public init(header: TableRow, delimiterRow: NSRange, alignments: [TableAlignment], rows: [TableRow]) {
-        self.header = header; self.delimiterRow = delimiterRow; self.alignments = alignments; self.rows = rows
+    public init(header: TableRow, delimiterRow: NSRange, delimiter: TableRow? = nil, alignments: [TableAlignment], rows: [TableRow]) {
+        self.header = header; self.delimiterRow = delimiterRow
+        self.delimiter = delimiter ?? TableRow(range: delimiterRow, cells: [], separators: [])
+        self.alignments = alignments; self.rows = rows
     }
     /// Header, then body rows, in source order.
     public var allRows: [TableRow] { [header] + rows }

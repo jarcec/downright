@@ -90,7 +90,7 @@ extension Block {
         case .listItem(let marker, let indent, let task):
             kind = .listItem(marker: marker.shifted(by: d), contentIndent: indent, task: task.map { TaskMarker(state: $0.state, range: $0.range.shifted(by: d)) })
         case .table(let t):
-            kind = .table(Table(header: t.header.shifted(by: d), delimiterRow: t.delimiterRow.shifted(by: d), alignments: t.alignments, rows: t.rows.map { $0.shifted(by: d) }))
+            kind = .table(Table(header: t.header.shifted(by: d), delimiterRow: t.delimiterRow.shifted(by: d), delimiter: t.delimiter.shifted(by: d), alignments: t.alignments, rows: t.rows.map { $0.shifted(by: d) }))
         default: kind = self.kind
         }
         return Block(kind: kind, range: range.shifted(by: d), markerRanges: markerRanges.map { $0.shifted(by: d) },

@@ -126,11 +126,101 @@ public final class MarkdownTextView: NSTextView {
         pb.setString(markdown, forType: NSPasteboard.PasteboardType("net.daringfireball.markdown"))
     }
 
+    // MARK: - Table operations (menu actions)
+
+    /// Offset the context menu was opened at; menu-bar invocations use the caret.
+    private var contextOffset: Int? = nil
+    private var tableOffset: Int { contextOffset ?? selectedRange().location }
+
+    private func table(_ op: EditorController.TableOperation) {
+        controller?.performTableOperation(op, at: tableOffset)
+        contextOffset = nil
+    }
+    @objc public func tableInsertRowAbove(_ sender: Any?) { table(.insertRowAbove) }
+    @objc public func tableInsertRowBelow(_ sender: Any?) { table(.insertRowBelow) }
+    @objc public func tableDeleteRow(_ sender: Any?) { table(.deleteRow) }
+    @objc public func tableMoveRowUp(_ sender: Any?) { table(.moveRowUp) }
+    @objc public func tableMoveRowDown(_ sender: Any?) { table(.moveRowDown) }
+    @objc public func tableInsertColumnLeft(_ sender: Any?) { table(.insertColumnLeft) }
+    @objc public func tableInsertColumnRight(_ sender: Any?) { table(.insertColumnRight) }
+    @objc public func tableDeleteColumn(_ sender: Any?) { table(.deleteColumn) }
+    @objc public func tableMoveColumnLeft(_ sender: Any?) { table(.moveColumnLeft) }
+    @objc public func tableMoveColumnRight(_ sender: Any?) { table(.moveColumnRight) }
+    @objc public func tableAlignLeft(_ sender: Any?) { table(.align(.left)) }
+    @objc public func tableAlignCenter(_ sender: Any?) { table(.align(.center)) }
+    @objc public func tableAlignRight(_ sender: Any?) { table(.align(.right)) }
+    @objc public func tableAlignDefault(_ sender: Any?) { table(.align(.none)) }
+
+    static let tableActions: [(String, Selector, EditorController.TableOperation)] = [
+        ("Insert Row Above", #selector(tableInsertRowAbove(_:)), .insertRowAbove),
+        ("Insert Row Below", #selector(tableInsertRowBelow(_:)), .insertRowBelow),
+        ("Delete Row", #selector(tableDeleteRow(_:)), .deleteRow),
+        ("Move Row Up", #selector(tableMoveRowUp(_:)), .moveRowUp),
+        ("Move Row Down", #selector(tableMoveRowDown(_:)), .moveRowDown),
+        ("Insert Column Left", #selector(tableInsertColumnLeft(_:)), .insertColumnLeft),
+        ("Insert Column Right", #selector(tableInsertColumnRight(_:)), .insertColumnRight),
+        ("Delete Column", #selector(tableDeleteColumn(_:)), .deleteColumn),
+        ("Move Column Left", #selector(tableMoveColumnLeft(_:)), .moveColumnLeft),
+        ("Move Column Right", #selector(tableMoveColumnRight(_:)), .moveColumnRight),
+    ]
+    static let alignActions: [(String, Selector, MarkdownKit.TableAlignment)] = [
+        ("Left", #selector(tableAlignLeft(_:)), .left),
+        ("Center", #selector(tableAlignCenter(_:)), .center),
+        ("Right", #selector(tableAlignRight(_:)), .right),
+        ("Default", #selector(tableAlignDefault(_:)), .none),
+    ]
+
+    /// The Table menu (also used as the context-menu section). Items target the responder chain.
+    public static func makeTableMenu(target: AnyObject? = nil) -> NSMenu {
+        let menu = NSMenu(title: "Table")
+        let up = String(UnicodeScalar(NSUpArrowFunctionKey)!), down = String(UnicodeScalar(NSDownArrowFunctionKey)!)
+        let left = String(UnicodeScalar(NSLeftArrowFunctionKey)!), right = String(UnicodeScalar(NSRightArrowFunctionKey)!)
+        let backspace = String(UnicodeScalar(NSBackspaceCharacter)!)
+        let shortcuts: [EditorController.TableOperation: (String, NSEvent.ModifierFlags)] = [
+            .insertRowAbove: (up, [.command, .option]), .insertRowBelow: (down, [.command, .option]),
+            .deleteRow: (backspace, [.command, .option]),
+            .moveRowUp: (up, [.command, .option, .control]), .moveRowDown: (down, [.command, .option, .control]),
+            .insertColumnLeft: (left, [.command, .option]), .insertColumnRight: (right, [.command, .option]),
+            .deleteColumn: (backspace, [.command, .option, .shift]),
+            .moveColumnLeft: (left, [.command, .option, .control]), .moveColumnRight: (right, [.command, .option, .control]),
+        ]
+        for (i, (title, sel, op)) in tableActions.enumerated() {
+            if i == 5 { menu.addItem(.separator()) }
+            let item = NSMenuItem(title: title, action: sel, keyEquivalent: shortcuts[op]?.0 ?? "")
+            if let s = shortcuts[op] { item.keyEquivalentModifierMask = s.1 }
+            item.target = target
+            menu.addItem(item)
+        }
+        menu.addItem(.separator())
+        let align = NSMenu(title: "Align Column")
+        for (title, sel, _) in alignActions {
+            let item = NSMenuItem(title: title, action: sel, keyEquivalent: "")
+            item.target = target
+            align.addItem(item)
+        }
+        let alignItem = NSMenuItem(title: "Align Column", action: nil, keyEquivalent: "")
+        alignItem.submenu = align
+        menu.addItem(alignItem)
+        return menu
+    }
+
     // MARK: - Context menu
 
     public override func menu(for event: NSEvent) -> NSMenu? {
         // Copy: the superclass hands back a shared menu, and inserting into it would persist.
         let menu = (super.menu(for: event)?.copy() as? NSMenu) ?? NSMenu()
+        // Table section first, when the click landed in a table.
+        let p = convert(event.locationInWindow, from: nil)
+        if let controller, let offset = controller.characterIndex(at: p), controller.tableHit(at: offset) != nil {
+            contextOffset = offset
+            let tableMenu = Self.makeTableMenu(target: self)
+            let holder = NSMenuItem(title: "Table", action: nil, keyEquivalent: "")
+            holder.submenu = tableMenu
+            menu.insertItem(holder, at: 0)
+            menu.insertItem(.separator(), at: 1)
+        } else {
+            contextOffset = nil
+        }
         // Right-click auto-selects the word (or newline) under the pointer; only offer
         // formatting when there is actual text to wrap.
         let sel = selectedRange()
@@ -234,6 +324,13 @@ public final class MarkdownTextView: NSTextView {
 
     public override func validateUserInterfaceItem(_ item: any NSValidatedUserInterfaceItem) -> Bool {
         switch item.action {
+        case let a? where Self.tableActions.contains(where: { $0.1 == a }):
+            guard let controller, let op = Self.tableActions.first(where: { $0.1 == a })?.2 else { return false }
+            return isEditable && controller.canPerformTableOperation(op, at: tableOffset)
+        case let a? where Self.alignActions.contains(where: { $0.1 == a }):
+            guard let controller, let align = Self.alignActions.first(where: { $0.1 == a }) else { return false }
+            if let mi = item as? NSMenuItem { mi.state = controller.tableColumnAlignment(at: tableOffset) == align.2 ? .on : .off }
+            return isEditable && controller.canPerformTableOperation(.align(align.2), at: tableOffset)
         case #selector(copyAlternate(_:)):
             if let mi = item as? NSMenuItem { mi.title = copiesRichTextByDefault ? "Copy as Markdown" : "Copy as Rich Text" }
             return selectedRange().length > 0

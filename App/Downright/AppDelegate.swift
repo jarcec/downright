@@ -76,6 +76,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     }
 }
 
+@MainActor
 enum MainMenu {
     static func build() -> NSMenu {
         let main = NSMenu()
@@ -162,6 +163,9 @@ enum MainMenu {
         code.keyEquivalentModifierMask = [.command, .shift]
         format.addItem(withTitle: "Link", action: #selector(MarkdownTextView.insertLink(_:)), keyEquivalent: "k")
         main.addItem(submenu(format))
+
+        // Table
+        main.addItem(submenu(MarkdownTextView.makeTableMenu()))
 
         // View
         let view = NSMenu(title: "View")
