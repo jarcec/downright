@@ -165,7 +165,7 @@ final class LinkPasteTests: XCTestCase {
     }
 
     func testContextMenuOffersInsertLinkForSelection() {
-        let c = make("hello world")
+        let c = make("hello world\n\n\n\n\n\n")   // blank lines give the click empty space
         c.textView.setSelectedRange(NSRange(location: 0, length: 5))
         let event = NSEvent.mouseEvent(with: .rightMouseDown, location: NSPoint(x: 10, y: 10), modifierFlags: [], timestamp: 0,
                                        windowNumber: 0, context: nil, eventNumber: 0, clickCount: 1, pressure: 1)!
@@ -174,7 +174,7 @@ final class LinkPasteTests: XCTestCase {
         // Right-clicking on a word auto-selects it (standard NSTextView behaviour), so the
         // no-selection case must click empty space below the text.
         c.textView.setSelectedRange(NSRange(location: 0, length: 0))
-        let empty = NSEvent.mouseEvent(with: .rightMouseDown, location: NSPoint(x: 300, y: 500), modifierFlags: [], timestamp: 0,
+        let empty = NSEvent.mouseEvent(with: .rightMouseDown, location: NSPoint(x: 300, y: 110), modifierFlags: [], timestamp: 0,
                                        windowNumber: 0, context: nil, eventNumber: 0, clickCount: 1, pressure: 1)!
         let plain = c.textView.menu(for: empty)?.items.map(\.title) ?? []
         XCTAssertFalse(plain.contains("Insert Link"), "menu without selection: \(plain)")
