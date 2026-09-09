@@ -125,3 +125,57 @@ extension Inline.Kind {
         }
     }
 }
+
+// MARK: - Dialect detection (PRD §8)
+
+/// Which extensions a parsed document actually uses. Detection only ever *widens*
+/// the profile; it is descriptive, not a parse setting.
+public struct DetectedDialect: Equatable, Sendable {
+    public var tables = false
+    public var taskLists = false
+    public var strikethrough = false
+    public var frontmatter = false
+    public var bareAutolinks = false
+
+    public var usesExtensions: Bool { tables || taskLists || strikethrough || frontmatter || bareAutolinks }
+
+    /// "CommonMark", or "GFM" followed by the extensions in use.
+    public var summary: String {
+        guard usesExtensions else { return "CommonMark" }
+        var parts: [String] = []
+        if frontmatter { parts.append("frontmatter") }
+        if tables { parts.append("tables") }
+        if taskLists { parts.append("tasks") }
+        if strikethrough { parts.append("strikethrough") }
+        if bareAutolinks { parts.append("autolinks") }
+        return "GFM · " + parts.joined(separator: ", ")
+    }
+
+    public static func detect(in document: Document) -> DetectedDialect {
+        var d = DetectedDialect()
+        func inlines(_ nodes: [Inline]) {
+            for n in nodes {
+                switch n.kind {
+                case .strikethrough: d.strikethrough = true
+                case .autolink: if n.markerRanges.isEmpty { d.bareAutolinks = true }
+                default: break
+                }
+                inlines(n.children)
+            }
+        }
+        func blocks(_ list: [Block]) {
+            for b in list {
+                switch b.kind {
+                case .table: d.tables = true
+                case .frontmatter: d.frontmatter = true
+                case .listItem(_, _, let task): if task != nil { d.taskLists = true }
+                default: break
+                }
+                inlines(b.inlines)
+                blocks(b.children)
+            }
+        }
+        blocks(document.blocks)
+        return d
+    }
+}

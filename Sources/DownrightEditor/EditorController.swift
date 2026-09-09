@@ -244,6 +244,36 @@ public final class EditorController: NSObject, NSTextViewDelegate, @preconcurren
         onSelectionChange?()
     }
 
+    // MARK: - Statistics (status bar)
+
+    public struct Statistics: Equatable {
+        public var lines: Int
+        public var words: Int
+        public var characters: Int
+        public init(lines: Int, words: Int, characters: Int) { self.lines = lines; self.words = words; self.characters = characters }
+    }
+
+    /// Whole-document counts. O(n); called after each reparse, not per keystroke.
+    public func statistics() -> Statistics {
+        var words = 0
+        var inWord = false
+        for u in textStorage.string.utf16 {
+            let ws = u == 32 || u == 10 || u == 9 || u == 13 || u == 0xA0
+            if ws { inWord = false } else if !inWord { inWord = true; words += 1 }
+        }
+        return Statistics(lines: lines.lineCount, words: words, characters: textStorage.length)
+    }
+
+    /// 1-based caret line and column (UTF-16 units from the line start).
+    public func caretPosition() -> (line: Int, column: Int) {
+        let loc = min(textView.selectedRange().location, textStorage.length)
+        let li = lines.line(containing: loc)
+        return (li + 1, loc - lines.lineStarts[li] + 1)
+    }
+
+    /// Extensions the current document uses (PRD §8 detection).
+    public var detectedDialect: DetectedDialect { DetectedDialect.detect(in: document) }
+
     // MARK: - Outline support
 
     public struct Heading: Equatable {

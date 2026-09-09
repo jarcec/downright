@@ -5,6 +5,7 @@ final class DocumentWindowController: NSWindowController, NSWindowDelegate {
     let editor: EditorController
     private let gutter: LineNumberGutterView
     private let outline = OutlineOverlayView(frame: .zero)
+    private let statusBar = StatusBarView(frame: .zero)
 
     init(document: MarkdownDocument) {
         editor = EditorController(textStorage: document.textStorage)
@@ -27,12 +28,16 @@ final class DocumentWindowController: NSWindowController, NSWindowDelegate {
         container.addSubview(gutter)
         container.addSubview(scroll)
         container.addSubview(outline)
+        container.addSubview(statusBar)
         NSLayoutConstraint.activate([
+            statusBar.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+            statusBar.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+            statusBar.bottomAnchor.constraint(equalTo: container.bottomAnchor),
             gutter.topAnchor.constraint(equalTo: container.topAnchor),
-            gutter.bottomAnchor.constraint(equalTo: container.bottomAnchor),
+            gutter.bottomAnchor.constraint(equalTo: statusBar.topAnchor),
             gutter.leadingAnchor.constraint(equalTo: container.leadingAnchor),
             scroll.topAnchor.constraint(equalTo: container.topAnchor),
-            scroll.bottomAnchor.constraint(equalTo: container.bottomAnchor),
+            scroll.bottomAnchor.constraint(equalTo: statusBar.topAnchor),
             scroll.leadingAnchor.constraint(equalTo: gutter.trailingAnchor),
             scroll.trailingAnchor.constraint(equalTo: container.trailingAnchor),
             outline.topAnchor.constraint(equalTo: container.topAnchor, constant: 12),
@@ -50,6 +55,10 @@ final class DocumentWindowController: NSWindowController, NSWindowDelegate {
         documentChanged()
         selectionChanged()
         DebugLog.write("window init: lineNumbers=\(Settings.showLineNumbers) outline=\(Settings.showOutline) gutter=\(gutter.thickness) headings=\(editor.headings().count) outlineHidden=\(outline.isHidden)")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self] in
+            guard let self, let w = self.window else { return }
+            DebugLog.write("frames: content=\(w.contentView?.frame ?? .zero) scroll=\(self.editor.scrollView.frame) tv=\(self.editor.textView.frame) gutter=\(self.gutter.frame) outline=\(self.outline.frame) status=\(self.statusBar.frame) ambiguous=\(self.editor.scrollView.hasAmbiguousLayout)")
+        }
         NotificationCenter.default.addObserver(self, selector: #selector(defaultsChanged(_:)), name: UserDefaults.didChangeNotification, object: nil)
     }
 
@@ -85,15 +94,28 @@ final class DocumentWindowController: NSWindowController, NSWindowDelegate {
         outline.isCollapsed = Settings.outlineCollapsed
     }
 
+    private var stats = EditorController.Statistics(lines: 0, words: 0, characters: 0)
+
     private func documentChanged() {
         gutter.recomputeThickness()
         gutter.needsDisplay = true
         outline.reload(editor.headings())
         outline.isHidden = !Settings.showOutline || editor.headings().isEmpty
+        stats = editor.statistics()
+        statusBar.trailingText = editor.detectedDialect.summary
+        updateStatusLeading()
     }
 
     private func selectionChanged() {
         gutter.needsDisplay = true
         outline.highlightHeading(containing: editor.textView.selectedRange().location)
+        updateStatusLeading()
+    }
+
+    private func updateStatusLeading() {
+        let pos = editor.caretPosition()
+        let f = NumberFormatter(); f.numberStyle = .decimal
+        func n(_ v: Int) -> String { f.string(from: NSNumber(value: v)) ?? "\(v)" }
+        statusBar.leadingText = "Ln \(pos.line), Col \(pos.column)   ·   \(n(stats.lines)) lines   \(n(stats.words)) words   \(n(stats.characters)) chars"
     }
 }
