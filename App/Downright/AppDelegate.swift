@@ -33,6 +33,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         Settings.vimMode.toggle()
     }
 
+    /// New untitled document as a tab of the key window (falls back to a new window).
+    @objc func newTab(_ sender: Any?) {
+        let host = NSApp.keyWindow ?? NSApp.mainWindow
+        guard let doc = try? NSDocumentController.shared.openUntitledDocumentAndDisplay(false) else { return }
+        doc.makeWindowControllers()
+        guard let window = doc.windowControllers.first?.window else { doc.showWindows(); return }
+        if let host, host.tabbingIdentifier == window.tabbingIdentifier {
+            host.addTabbedWindow(window, ordered: .above)
+        }
+        doc.showWindows()
+    }
+
     func validateMenuItem(_ item: NSMenuItem) -> Bool {
         switch item.action {
         case #selector(toggleLineNumbers(_:)): item.state = Settings.showLineNumbers ? .on : .off
@@ -72,6 +84,7 @@ enum MainMenu {
         // File
         let file = NSMenu(title: "File")
         file.addItem(withTitle: "New", action: #selector(NSDocumentController.newDocument(_:)), keyEquivalent: "n")
+        file.addItem(withTitle: "New Tab", action: #selector(AppDelegate.newTab(_:)), keyEquivalent: "t")
         file.addItem(withTitle: "Open…", action: #selector(NSDocumentController.openDocument(_:)), keyEquivalent: "o")
         let recent = NSMenu(title: "Open Recent")
         recent.addItem(withTitle: "Clear Menu", action: #selector(NSDocumentController.clearRecentDocuments(_:)), keyEquivalent: "")
@@ -151,6 +164,9 @@ enum MainMenu {
         let window = NSMenu(title: "Window")
         window.addItem(withTitle: "Minimize", action: #selector(NSWindow.performMiniaturize(_:)), keyEquivalent: "m")
         window.addItem(withTitle: "Zoom", action: #selector(NSWindow.performZoom(_:)), keyEquivalent: "")
+        window.addItem(.separator())
+        window.addItem(withTitle: "Show Tab Bar", action: #selector(NSWindow.toggleTabBar(_:)), keyEquivalent: "")
+        window.addItem(withTitle: "Show All Tabs", action: #selector(NSWindow.toggleTabOverview(_:)), keyEquivalent: "")
         window.addItem(.separator())
         window.addItem(withTitle: "Show Previous Tab", action: #selector(NSWindow.selectPreviousTab(_:)), keyEquivalent: "{").keyEquivalentModifierMask = [.command, .shift]
         window.addItem(withTitle: "Show Next Tab", action: #selector(NSWindow.selectNextTab(_:)), keyEquivalent: "}").keyEquivalentModifierMask = [.command, .shift]

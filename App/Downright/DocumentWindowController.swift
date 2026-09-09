@@ -16,6 +16,7 @@ final class DocumentWindowController: NSWindowController, NSWindowDelegate {
                               backing: .buffered, defer: false)
         window.minSize = NSSize(width: 360, height: 240)
         window.tabbingMode = .preferred
+        window.tabbingIdentifier = "DownrightDocument"
         window.center()
         super.init(window: window)
         window.delegate = self
@@ -44,6 +45,13 @@ final class DocumentWindowController: NSWindowController, NSWindowDelegate {
             outline.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -28),
         ])
         window.contentView = container
+
+        // Join the existing document tab group. Automatic tabbing only attaches to the
+        // key window, which does not exist yet when several files arrive in one open
+        // request (`downright -p a.md b.md`), so do it explicitly.
+        if let host = NSApp.windows.last(where: { $0 !== window && $0.tabbingIdentifier == window.tabbingIdentifier && $0.windowController is DocumentWindowController }) {
+            host.addTabbedWindow(window, ordered: .above)
+        }
 
         outline.onSelect = { [weak self] offset in self?.editor.scroll(to: offset) }
         outline.isCollapsed = Settings.outlineCollapsed

@@ -16,9 +16,11 @@ VERSION="0.0.1"
 
 usage() {
   cat <<USAGE
-usage: downright [-n] [FILE...]
+usage: downright [-p] [-n] [FILE...]
 
-  FILE        open FILE (created empty if it does not exist)
+  FILE        open FILE (created empty if it does not exist); several files
+              open as tabs in one window, e.g.  downright -p *.md
+  -p          open files as tabs (the default; accepted for vim muscle memory)
   -n, --new   activate the app (creates an untitled document if none is open)
   -v          print version
   -h          this help
@@ -35,6 +37,7 @@ for arg in "$@"; do
     -h|--help)    usage; exit 0 ;;
     -v|--version) echo "downright $VERSION"; exit 0 ;;
     -n|--new)     open -a "$APP" || exit 2; exit 0 ;;
+    -p)           continue ;;
     -*)           echo "downright: unknown option: $arg" >&2; usage; exit 1 ;;
   esac
   case "$arg" in
