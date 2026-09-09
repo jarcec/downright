@@ -19,6 +19,8 @@ targets:
         product: DownrightEditor
       - package: DownrightKit
         product: MarkdownKit
+      - package: DownrightKit
+        product: DownrightConfig
     settings:
       base:
         PRODUCT_NAME: Downright

@@ -69,7 +69,7 @@ final class DocumentWindowController: NSWindowController, NSWindowDelegate {
             guard let self, let w = self.window else { return }
             DebugLog.write("frames: content=\(w.contentView?.frame ?? .zero) scroll=\(self.editor.scrollView.frame) tv=\(self.editor.textView.frame) gutter=\(self.gutter.frame) outline=\(self.outline.frame) status=\(self.statusBar.frame) ambiguous=\(self.editor.scrollView.hasAmbiguousLayout)")
         }
-        NotificationCenter.default.addObserver(self, selector: #selector(defaultsChanged(_:)), name: UserDefaults.didChangeNotification, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(defaultsChanged(_:)), name: Settings.didChange, object: nil)
     }
 
     @available(*, unavailable)

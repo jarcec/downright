@@ -2,32 +2,42 @@ import AppKit
 import SwiftUI
 
 struct SettingsView: View {
-    @AppStorage(Settings.showLineNumbersKey) private var showLineNumbers = true
-    @AppStorage(Settings.showOutlineKey) private var showOutline = true
-    @AppStorage(Settings.appearanceKey) private var appearance = Settings.Appearance.system.rawValue
-    @AppStorage(Settings.vimModeKey) private var vimMode = false
+    @ObservedObject var settings = Settings.shared
 
     var body: some View {
         Form {
             Section("Appearance") {
-                Picker("Theme", selection: $appearance) {
-                    ForEach(Settings.Appearance.allCases) { Text($0.title).tag($0.rawValue) }
+                Picker("Theme", selection: $settings.appearance) {
+                    ForEach(Settings.Appearance.allCases) { Text($0.title).tag($0) }
                 }
                 .pickerStyle(.segmented)
             }
             Section("Editor") {
-                Toggle("Show line numbers", isOn: $showLineNumbers)
-                Toggle("Show outline", isOn: $showOutline)
+                Toggle("Show line numbers", isOn: $settings.showLineNumbers)
+                Toggle("Show outline", isOn: $settings.showOutline)
             }
             Section("Keys") {
-                Toggle("Vim mode", isOn: $vimMode)
+                Toggle("Vim mode", isOn: $settings.vimMode)
                 Text("Normal/insert/command modes with counts, d y c operators, h j k l w b e 0 ^ $ G gg motions, x D p P u ⌃R, and :w :q :wq :q!.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
+            Section {
+                HStack {
+                    Text("Stored in \(settings.displayPath)")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .textSelection(.enabled)
+                    Spacer()
+                    Button("Reveal in Finder") {
+                        NSWorkspace.shared.activateFileViewerSelecting([settings.fileURL])
+                    }
+                    .controlSize(.small)
+                }
+            }
         }
         .formStyle(.grouped)
-        .frame(width: 380)
+        .frame(width: 420)
         .fixedSize(horizontal: false, vertical: true)
     }
 }

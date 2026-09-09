@@ -323,6 +323,7 @@ App Store:
 | Nonexistent paths cannot be opened | Launch Services cannot grant a file that does not exist | The shim, which runs unsandboxed in the shell, `touch`es the file first and then opens it normally (plan decision D3). The app never sees this case |
 | ~~Atomic external rewrites may revoke access~~ | Verified **not** to be a problem: the gate rewrote an open document with `mv` twice and the app reloaded both times | — |
 | No Homebrew cask, no direct download | Update cadence and beta distribution are bound to App Review | TestFlight for macOS covers betas |
+| Settings file outside the container | Settings live in `~/.config/downright.toml` (chezmoi-friendly); the sandbox denies `~/.config` | v0 uses a `temporary-exception.files.home-relative-path.read-write` entitlement for `~/.config/`. **App Review is likely to reject it**; before submission replace with a one-time grant (open panel → security-scoped bookmark), falling back to container-local storage when the user declines |
 
 **Exit codes:** 0 on successful hand-off; 1 on usage error; 2 if the app cannot be located.
 

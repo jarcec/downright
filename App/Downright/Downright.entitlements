@@ -6,5 +6,13 @@
 	<true/>
 	<key>com.apple.security.files.user-selected.read-write</key>
 	<true/>
+	<!-- Settings live in ~/.config/downright.toml so they can be shared with chezmoi.
+	     Temporary exceptions are frequently rejected by App Store review; before
+	     submission this must become a one-time user grant (security-scoped bookmark).
+	     See TRD §9. -->
+	<key>com.apple.security.temporary-exception.files.home-relative-path.read-write</key>
+	<array>
+		<string>/.config/</string>
+	</array>
 </dict>
 </plist>
