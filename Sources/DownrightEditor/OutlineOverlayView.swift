@@ -26,6 +26,11 @@ public final class OutlineOverlayView: NSVisualEffectView, NSTableViewDataSource
     private let collapsedWidth: CGFloat = 96
     private var suppressSelection = false
 
+    /// Resting opacity; the panel becomes solid while the pointer is over it so it stays
+    /// out of the way of the text it floats above.
+    public var restingAlpha: CGFloat = 0.45
+    private var hoverTracking: NSTrackingArea?
+
     public override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         material = .popover
@@ -93,6 +98,34 @@ public final class OutlineOverlayView: NSVisualEffectView, NSTableViewDataSource
         widthConstraint = widthAnchor.constraint(equalToConstant: expandedWidth)
         widthConstraint.isActive = true
         applyCollapsed()
+        alphaValue = restingAlpha
+    }
+
+    // MARK: - Hover: translucent at rest, solid under the pointer
+
+    public override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let t = hoverTracking { removeTrackingArea(t) }
+        let t = NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeInKeyWindow, .inVisibleRect], owner: self, userInfo: nil)
+        addTrackingArea(t)
+        hoverTracking = t
+    }
+
+    public override func mouseEntered(with event: NSEvent) {
+        super.mouseEntered(with: event)
+        setSolid(true)
+    }
+
+    public override func mouseExited(with event: NSEvent) {
+        super.mouseExited(with: event)
+        setSolid(false)
+    }
+
+    private func setSolid(_ solid: Bool) {
+        NSAnimationContext.runAnimationGroup { ctx in
+            ctx.duration = 0.15
+            animator().alphaValue = solid ? 1 : restingAlpha
+        }
     }
 
     @objc private func toggleCollapsed(_ sender: Any?) {
