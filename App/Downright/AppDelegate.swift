@@ -6,6 +6,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     func applicationWillFinishLaunching(_ notification: Notification) {
         Settings.shared.load()
         Settings.applyAppearance()
+        // Take over the Open Documents Apple event: NSDocumentController's own handler would
+        // otherwise open the files before application(_:open:) is consulted.
+        NSAppleEventManager.shared().setEventHandler(self, andSelector: #selector(handleOpenDocuments(_:withReply:)),
+                                                     forEventClass: AEEventClass(kCoreEventClass), andEventID: AEEventID(kAEOpenDocuments))
         NotificationCenter.default.addObserver(self, selector: #selector(defaultsChanged(_:)), name: Settings.didChange, object: nil)
         NSApp.mainMenu = MainMenu.build()
         DebugLog.write("willFinishLaunching: lineNumbers=\(Settings.showLineNumbers) outline=\(Settings.showOutline)")
@@ -69,7 +73,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     /// Finder double-click); only for a plain launch or Dock click with no windows.
     /// Launch Services open request (CLI, Finder). Each request opens in a new window;
     /// several files in one request become tabs of that window.
-    func application(_ application: NSApplication, open urls: [URL]) {
+    @objc private func handleOpenDocuments(_ event: NSAppleEventDescriptor, withReply reply: NSAppleEventDescriptor) {
+        var urls: [URL] = []
+        if let list = event.paramDescriptor(forKeyword: AEKeyword(keyDirectObject)) {
+            let count = list.numberOfItems
+            let items = count > 0 ? (1...count).compactMap { list.atIndex($0) } : [list]
+            for item in items {
+                if let data = item.coerce(toDescriptorType: typeFileURL)?.data, let url = URL(dataRepresentation: data, relativeTo: nil) {
+                    urls.append(url)
+                }
+            }
+        }
+        DebugLog.write("open documents event: \(urls.map(\.lastPathComponent))")
+        guard !urls.isEmpty else { return }
         DocumentWindowController.beginOpenBatch()
         openSequentially(urls[...])
     }

@@ -76,6 +76,7 @@ final class DocumentWindowController: NSWindowController, NSWindowDelegate {
         // Join the existing document tab group. Automatic tabbing only attaches to the
         // key window, which does not exist yet when several files arrive in one open
         // request (`downright -p a.md b.md`), so do it explicitly.
+        DebugLog.write("window for \(document.fileURL?.lastPathComponent ?? "untitled"): standalone=\(Self.nextWindowOpensStandalone) inBatch=\(Self.inOpenBatch) host=\(Self.batchHost != nil) visibleDocWindows=\(NSApp.windows.filter { $0.isVisible && $0.windowController is DocumentWindowController }.count)")
         if Self.nextWindowOpensStandalone {
             Self.nextWindowOpensStandalone = false
             // Disallow tabbing while the window is shown — with "Prefer tabs: Always" in
