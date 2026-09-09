@@ -10,6 +10,7 @@ public enum StyleOp {
     case background(NSColor)
     case link(URL)
     case strikethrough
+    case baselineOffset(CGFloat)
 }
 
 public struct StyleRun {
@@ -44,6 +45,8 @@ public struct ParagraphDecoration {
     public var conceal: [NSRange] = []
     /// Applied only when concealed: same-length character substitutions (plan D4).
     public var substitutions: [(offset: Int, char: unichar)] = []
+    /// Applied only when concealed, after substitutions (e.g. sizing a bullet glyph).
+    public var concealedStyles: [StyleRun] = []
     public var quoteDepth = 0
     public var firstLineHeadIndent: CGFloat = 0
     public var headIndent: CGFloat = 0

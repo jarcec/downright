@@ -59,7 +59,11 @@ public final class DecorationEngine {
                         // Task items show only the checkbox: hide the bullet and its space
                         d.conceal.append(NSRange(marker.location, to: t.range.location))
                     } else if isBullet {
-                        d.substitutions.append((marker.location, 0x2022))  // •
+                        // Solid circle, scaled down and centred: bolder than "•" at body size
+                        // without changing the line's height.
+                        d.substitutions.append((marker.location, 0x25CF))  // ●
+                        d.concealedStyles.append(StyleRun(marker, .font(.systemFont(ofSize: theme.bodySize * 0.55))))
+                        d.concealedStyles.append(StyleRun(marker, .baselineOffset(theme.bodySize * 0.14)))
                     }
                     d.styles.append(StyleRun(marker, .foreground(theme.listMarkerColor)))
                     if let t = task {

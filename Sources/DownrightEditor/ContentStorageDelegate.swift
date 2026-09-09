@@ -33,6 +33,7 @@ public final class MarkdownContentStorageDelegate: NSObject, @preconcurrency NST
                 out.replaceCharacters(in: NSRange(location: i, length: 1),
                                       with: NSAttributedString(string: String(utf16CodeUnits: [ch], count: 1), attributes: attrs))
             }
+            for run in d.concealedStyles { Self.apply(run, to: out, base: range) }
             for r in d.conceal {
                 guard let rel = Self.relative(r, base: range) else { continue }
                 out.addAttributes([.font: Theme.concealedFont, .foregroundColor: Theme.concealedColor], range: rel)
@@ -72,6 +73,8 @@ public final class MarkdownContentStorageDelegate: NSObject, @preconcurrency NST
             out.addAttribute(.link, value: url, range: rel)
         case .strikethrough:
             out.addAttribute(.strikethroughStyle, value: NSUnderlineStyle.single.rawValue, range: rel)
+        case .baselineOffset(let v):
+            out.addAttribute(.baselineOffset, value: v, range: rel)
         case .traits(let traits):
             out.enumerateAttribute(.font, in: rel) { value, r, _ in
                 let f = (value as? NSFont) ?? NSFont.systemFont(ofSize: NSFont.systemFontSize)
