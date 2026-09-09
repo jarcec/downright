@@ -230,7 +230,7 @@ public final class EditorController: NSObject, NSTextViewDelegate, @preconcurren
         pendingDelta = 0
         let old = document
         let t = CFAbsoluteTimeGetCurrent()
-        replaceDocument(with: MarkdownParser.parse(textStorage.string, dialect: dialect))
+        replaceDocument(with: MarkdownParser.reparse(previous: old, source: textStorage.string, edit: edit, delta: delta, dialect: dialect))
         let dirty = Self.dirtyRange(old: old, new: document, edit: edit, delta: delta)
         updateReveal(extraInvalidation: [dirty])
         let ms = (CFAbsoluteTimeGetCurrent() - t) * 1000

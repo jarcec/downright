@@ -63,12 +63,15 @@ final class BlockParser {
 
     enum HTMLEnd { case blankLine, contains(String), containsAny([String]) }
 
-    init(source buf: [UInt16], dialect: Dialect) {
+    init(source buf: [UInt16], dialect: Dialect, references: [String: String] = [:]) {
         self.buf = buf
         self.lines = LineIndex(utf16: buf)
         self.dialect = dialect
         self.root = Node(kind: .paragraph, start: 0) // kind unused for root
+        self.references = references
     }
+
+    var lineIndex: LineIndex { lines }
 
     // MARK: - Entry
 
@@ -78,15 +81,32 @@ final class BlockParser {
             root.children.append(fm.node)
             lineIndex = fm.nextLine
         }
-        while lineIndex < lines.lineCount {
+        let (blocks, _, _) = parseLines(from: lineIndex, stop: nil)
+        return Document(blocks: blocks, length: buf.count, references: references, sourceString: String(utf16CodeUnits: buf, count: buf.count))
+    }
+
+    /// Parse from `fromLine` until the end or until, at a clean top-level boundary (no open
+    /// blocks) beyond the first line, `stop(offset)` returns true. Used by incremental
+    /// reparsing. Returns the blocks, the references found, and the offset stopped at.
+    func parseLines(from fromLine: Int, stop: ((Int) -> Bool)?) -> (blocks: [Block], references: [String: String], stoppedAt: Int?) {
+        let before = references
+        var li = fromLine
+        var stoppedAt: Int? = nil
+        while li < lines.lineCount {
             // Skip the phantom empty line after a trailing newline
-            if lineIndex == lines.lineCount - 1 && lines.lineStarts[lineIndex] == buf.count && buf.count > 0 { break }
-            processLine(lineIndex)
-            lineIndex += 1
+            if li == lines.lineCount - 1 && lines.lineStarts[li] == buf.count && buf.count > 0 { break }
+            if let stop, li > fromLine, root.lastOpenChild == nil, stop(lines.lineStarts[li]) {
+                stoppedAt = lines.lineStarts[li]
+                break
+            }
+            processLine(li)
+            li += 1
         }
         closeAll(root)
         let blocks = root.children.flatMap { convert($0) }
-        return Document(blocks: blocks, length: buf.count, references: references, sourceString: String(utf16CodeUnits: buf, count: buf.count))
+        var found: [String: String] = [:]
+        for (k, v) in references where before[k] != v { found[k] = v }
+        return (blocks, found, stoppedAt)
     }
 
     // MARK: - Frontmatter
