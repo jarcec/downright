@@ -208,7 +208,14 @@ public final class EditorController: NSObject, NSTextViewDelegate, @preconcurren
         if forward {
             ci += 1
             if ci >= rows[ri].cells.count { ri += 1; ci = 0 }
-            guard ri < rows.count, ci < rows[ri].cells.count else { return true }
+            if ri >= rows.count {
+                // Tab in the last cell: a new row, like a spreadsheet.
+                if let last = rows.last, let first = last.cells.first {
+                    performTableOperation(.insertRowBelow, at: first.range.location)
+                }
+                return true
+            }
+            guard ci < rows[ri].cells.count else { return true }
         } else {
             ci -= 1
             if ci < 0 { ri -= 1; guard ri >= 0 else { return true }; ci = rows[ri].cells.count - 1 }

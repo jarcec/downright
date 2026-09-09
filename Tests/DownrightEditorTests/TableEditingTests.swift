@@ -36,6 +36,14 @@ final class TableEditingTests: XCTestCase {
         XCTAssertEqual(text(c.textView.selectedRange()), "**Amount**")
     }
 
+    func testTabInLastCellAddsRow() {
+        let two = (src as NSString).range(of: "**2**").location
+        sel(two + 2)
+        XCTAssertTrue(c.tableTab(at: caret, forward: true))
+        XCTAssertTrue(storage.string.contains("| b | **2** |\n|     |     |\n\nafter"), storage.string)
+        XCTAssertEqual(c.tableHit(at: caret)?.rowIndex, 3, "caret in the new row")
+    }
+
     func testReturnInsertsRow() {
         sel(2)   // header → new row goes below the delimiter
         XCTAssertTrue(c.tableInsertRow(at: caret))
