@@ -34,13 +34,16 @@ final class DocumentWindowController: NSWindowController, NSWindowDelegate {
         editor = EditorController(textStorage: document.textStorage, theme: Settings.theme)
         gutter = LineNumberGutterView(controller: editor)
 
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 860, height: 940),
+        // Reuse the frame the user last left a document window at (per machine, so it
+        // lives in defaults rather than the shared settings file); cascade from there.
+        let saved = Self.savedFrame()
+        let window = NSWindow(contentRect: saved ?? NSRect(x: 0, y: 0, width: 860, height: 940),
                               styleMask: [.titled, .closable, .miniaturizable, .resizable],
                               backing: .buffered, defer: false)
         window.minSize = NSSize(width: 360, height: 240)
         window.tabbingMode = .preferred
         window.tabbingIdentifier = "DownrightDocument"
-        window.center()
+        if saved == nil { window.center() }
         super.init(window: window)
         window.delegate = self
         shouldCascadeWindows = true
@@ -135,6 +138,29 @@ final class DocumentWindowController: NSWindowController, NSWindowDelegate {
 
     func windowWillReturnUndoManager(_ window: NSWindow) -> UndoManager? {
         document?.undoManager
+    }
+
+    // MARK: - Remembering the window frame
+
+    private static let frameKey = "DocumentWindowFrame"
+
+    private static func savedFrame() -> NSRect? {
+        guard let s = UserDefaults.standard.string(forKey: frameKey) else { return nil }
+        let r = NSRectFromString(s)
+        guard r.width >= 360, r.height >= 240 else { return nil }
+        // Only if it still lands on a screen.
+        return NSScreen.screens.contains(where: { $0.visibleFrame.intersects(r) }) ? r : nil
+    }
+
+    private func rememberFrame() {
+        guard let w = window, !w.isMiniaturized, !w.styleMask.contains(.fullScreen) else { return }
+        UserDefaults.standard.set(NSStringFromRect(w.frame), forKey: Self.frameKey)
+    }
+
+    func windowDidEndLiveResize(_ notification: Notification) { rememberFrame() }
+    func windowDidMove(_ notification: Notification) { rememberFrame() }
+    func windowDidResize(_ notification: Notification) {
+        if window?.inLiveResize == false { rememberFrame() }   // zoom / programmatic resizes
     }
 
     func windowDidResize(_ notification: Notification) {
