@@ -124,3 +124,89 @@ final class VimEngineTests: XCTestCase {
         XCTAssertEqual(storage.string, "xabc")
     }
 }
+
+@MainActor
+final class VimVisualTests: XCTestCase {
+    private var c: EditorController!
+    private var storage: NSTextStorage!
+    private func load(_ text: String, caret: Int = 0) {
+        storage = NSTextStorage(string: text)
+        c = EditorController(textStorage: storage)
+        c.layoutManager.textContainer?.size = CGSize(width: 600, height: 1e7)
+        c.textView.vim.isEnabled = true
+        c.textView.setSelectedRange(NSRange(location: caret, length: 0))
+    }
+    private func keys(_ s: String) {
+        for ch in s {
+            let e = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0, windowNumber: 0, context: nil,
+                                     characters: String(ch), charactersIgnoringModifiers: String(ch), isARepeat: false, keyCode: 0)!
+            if !c.textView.vim.handle(e) { c.textView.insertText(String(ch), replacementRange: NSRange(location: NSNotFound, length: 0)) }
+        }
+    }
+    private func escape() {
+        let e = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0, windowNumber: 0, context: nil, characters: "\u{1B}", charactersIgnoringModifiers: "\u{1B}", isARepeat: false, keyCode: 53)!
+        _ = c.textView.vim.handle(e)
+    }
+    private var sel: NSRange { c.textView.selectedRange() }
+
+    func testCharwiseSelectAndDelete() {
+        load("one two three", caret: 4)
+        keys("v")
+        XCTAssertEqual(c.textView.vim.mode, .visual(linewise: false))
+        XCTAssertEqual(sel, NSRange(location: 4, length: 1), "v selects the character under the cursor")
+        keys("e")
+        XCTAssertEqual(sel, NSRange(location: 4, length: 3), "extends to the end of 'two'")
+        keys("d")
+        XCTAssertEqual(storage.string, "one  three")
+        XCTAssertEqual(c.textView.vim.mode, .normal)
+        XCTAssertEqual(sel, NSRange(location: 4, length: 0))
+    }
+
+    func testLinewiseYankAndPaste() {
+        load("a\nb\nc\n", caret: 0)
+        keys("Vjy")
+        XCTAssertEqual(c.textView.vim.mode, .normal)
+        keys("G")      // last line
+        keys("p")
+        XCTAssertEqual(storage.string, "a\nb\nc\na\nb\n")
+    }
+
+    func testBackwardSelectionAndEscape() {
+        load("hello world", caret: 8)
+        keys("vb")
+        XCTAssertEqual(sel, NSRange(location: 6, length: 3), "selecting backwards keeps the anchor character")
+        escape()
+        XCTAssertEqual(c.textView.vim.mode, .normal)
+        XCTAssertEqual(sel.length, 0)
+        XCTAssertEqual(sel.location, 6)
+    }
+
+    func testChangeAndStatus() {
+        load("foo bar", caret: 0)
+        keys("v")
+        XCTAssertEqual(c.textView.vim.statusText, "-- VISUAL --")
+        keys("ec")
+        XCTAssertEqual(c.textView.vim.mode, .insert)
+        XCTAssertEqual(storage.string, " bar")
+        keys("X"); escape()
+        XCTAssertEqual(storage.string, "X bar")
+    }
+
+    func testVisualPasteReplacesSelection() {
+        load("one two", caret: 0)
+        keys("yw")           // register = "one "
+        keys("wve")          // select "two"
+        keys("p")
+        XCTAssertEqual(storage.string, "one one ")
+    }
+
+    func testSwapEndsAndToggleLinewise() {
+        load("ab\ncd\n", caret: 0)
+        keys("vlo")
+        XCTAssertEqual(sel, NSRange(location: 0, length: 2))
+        keys("V")
+        XCTAssertEqual(sel, NSRange(location: 0, length: 3), "V from charwise becomes linewise over the same line")
+        keys("v"); XCTAssertEqual(c.textView.vim.mode, .visual(linewise: false))
+        keys("v"); XCTAssertEqual(c.textView.vim.mode, .normal)
+    }
+}

@@ -24,7 +24,7 @@ struct SettingsView: View {
             }
             Section("Keys") {
                 Toggle("Vim mode", isOn: $settings.vimMode)
-                Text("Normal/insert/command modes with counts, d y c operators, h j k l w b e 0 ^ $ G gg motions, x D p P u ⌃R, and :w :q :wq :q!.")
+                Text("Normal, insert, visual (v / V) and command modes with counts, d y c operators, h j k l w b e 0 ^ $ G gg motions, x D p P u ⌃R, and :w :q :wq :q!.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }

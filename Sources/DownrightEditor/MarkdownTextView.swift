@@ -35,7 +35,7 @@ public final class MarkdownTextView: NSTextView {
     }
 
     public func updateBlockCursor() {
-        guard vim.isEnabled, vim.mode != .insert, let controller,
+        guard vim.isEnabled, vim.mode != .insert, selectedRange().length == 0, let controller,
               let caret = controller.caretRect(at: selectedRange().location) else {
             blockCursor.isHidden = true
             return

@@ -6,7 +6,7 @@ import MarkdownKit
 /// Motions are computed on the source string so they follow vim's *logical* lines.
 @MainActor
 public final class VimEngine {
-    public enum Mode: Equatable { case normal, insert, command }
+    public enum Mode: Equatable { case normal, insert, command, visual(linewise: Bool) }
 
     public private(set) var mode: Mode = .insert
     public var isEnabled = false {
@@ -21,6 +21,7 @@ public final class VimEngine {
         switch mode {
         case .insert: return "-- INSERT --"
         case .command: return ":" + commandLine
+        case .visual(let linewise): return (linewise ? "-- VISUAL LINE --" : "-- VISUAL --") + (count > 0 ? " \(count)" : "")
         case .normal:
             var s = "NORMAL"
             if count > 0 { s += " \(count)" }
@@ -42,6 +43,8 @@ public final class VimEngine {
     private(set) var commandLine = ""
     private var register = ""
     private var registerLinewise = false
+    /// Visual mode: the fixed end of the selection; the caret is the moving end.
+    private var visualAnchor = 0
 
     public init() {}
 
@@ -67,6 +70,12 @@ public final class VimEngine {
                 return true
             }
             if flags.isEmpty, let s = event.characters, !s.isEmpty { commandLine += s; onStateChange?() }
+            return true
+        case .visual(let linewise):
+            if flags.contains(.command) { return false }
+            if isEscape { exitVisual(); return true }
+            guard let s = event.charactersIgnoringModifiers, let ch = s.first else { return true }
+            visual(ch, linewise: linewise)
             return true
         case .normal:
             if flags.contains(.command) { return false }      // menu shortcuts keep working
@@ -121,6 +130,8 @@ public final class VimEngine {
             else { pendingOperator = ch }
         case "g": pendingPrefix = "g"
         case ":": mode = .command; commandLine = ""; resetPending()
+        case "v": enterVisual(linewise: false)
+        case "V": enterVisual(linewise: true)
         case "h": motion(.left)
         case "l": motion(.right)
         case "j": motion(.down)
@@ -138,6 +149,7 @@ public final class VimEngine {
 
     private func enterNormal() {
         mode = .normal
+        headStore = nil
         resetPending()
         commandLine = ""
         textView?.insertionPointColor = .systemOrange
@@ -157,6 +169,108 @@ public final class VimEngine {
         count = 0
         pendingOperator = nil
         pendingPrefix = nil
+    }
+
+    // MARK: - Visual mode
+
+    private func enterVisual(linewise: Bool) {
+        visualAnchor = caret
+        mode = .visual(linewise: linewise)
+        resetPending()
+        applyVisualSelection(head: caret)
+        onStateChange?()
+    }
+
+    private func exitVisual() {
+        let head = currentHead
+        mode = .normal
+        headStore = nil
+        setCaret(head)
+        resetPending()
+        onStateChange?()
+    }
+
+    private var headStore: Int? = nil
+
+    private func applyVisualSelection(head: Int) {
+        headStore = head
+        guard let tv = textView else { return }
+        let n = text.length
+        let lo = min(visualAnchor, head), hi = max(visualAnchor, head)
+        if case .visual(let linewise) = mode, linewise {
+            let a = lines.line(containing: lo), b = lines.line(containing: hi)
+            let r = lineRange(from: a, to: b)
+            tv.setSelectedRange(r)
+        } else {
+            tv.setSelectedRange(NSRange(location: lo, length: min(hi + 1, n) - lo))   // inclusive of the head character
+        }
+        tv.scrollRangeToVisible(NSRange(location: head, length: 0))
+    }
+
+    private var currentHead: Int { headStore ?? caret }
+
+    private func visual(_ ch: Character, linewise: Bool) {
+        defer { onStateChange?() }
+        if let pre = pendingPrefix {
+            pendingPrefix = nil
+            if pre == "g" && ch == "g" { visualMove(.top) }
+            return
+        }
+        if let d = ch.wholeNumberValue, ch.isASCII, !(ch == "0" && count == 0) { count = min(count * 10 + d, 100_000); return }
+        switch ch {
+        case "v": if linewise { mode = .visual(linewise: false); applyVisualSelection(head: currentHead) } else { exitVisual() }
+        case "V": if linewise { exitVisual() } else { mode = .visual(linewise: true); applyVisualSelection(head: currentHead) }
+        case "o": let h = currentHead; let a = visualAnchor; visualAnchor = h; applyVisualSelection(head: a)
+        case "d", "x": visualOperate("d")
+        case "y": visualOperate("y")
+        case "c", "s": visualOperate("c")
+        case "p", "P": visualPaste()
+        case "g": pendingPrefix = "g"
+        case "h": visualMove(.left)
+        case "l": visualMove(.right)
+        case "j": visualMove(.down)
+        case "k": visualMove(.up)
+        case "w": visualMove(.wordForward)
+        case "b": visualMove(.wordBackward)
+        case "e": visualMove(.wordEnd)
+        case "0": visualMove(.lineStart)
+        case "^": visualMove(.firstNonBlank)
+        case "$": visualMove(.lineEnd)
+        case "G": visualMove(.bottom)
+        default: resetPending()
+        }
+    }
+
+    private func visualMove(_ m: Motion) {
+        let n = max(1, count)
+        var head = currentHead
+        for _ in 0..<n { head = destination(from: head, m) }
+        // `l` and `$` may reach the newline; keep the head on a character.
+        let cr = lines.contentRange(ofLine: lines.line(containing: head))
+        if head >= cr.end && cr.length > 0 && (m == .right || m == .lineEnd) { head = cr.end - 1 }
+        count = 0
+        applyVisualSelection(head: head)
+    }
+
+    private func visualOperate(_ op: Character) {
+        guard let tv = textView else { return }
+        let r = tv.selectedRange()
+        let linewise: Bool = { if case .visual(let l) = mode { return l }; return false }()
+        mode = .normal
+        headStore = nil
+        operate(op, over: r, linewise: linewise)
+        if op != "c" { setCaret(r.location); (textView as? MarkdownTextView)?.vimModeDidChange() }
+    }
+
+    private func visualPaste() {
+        guard let tv = textView else { return }
+        let r = tv.selectedRange()
+        let saved = (register, registerLinewise)
+        mode = .normal
+        headStore = nil
+        operate("d", over: r)
+        (register, registerLinewise) = saved
+        paste(after: false)
     }
 
     // MARK: - Motions
