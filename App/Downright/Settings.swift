@@ -6,11 +6,13 @@ import Foundation
 enum Settings {
     static let showLineNumbersKey = "showLineNumbers"
     static let showOutlineKey = "showOutline"
+    static let outlineCollapsedKey = "outlineCollapsed"
 
     static func registerDefaults() {
         UserDefaults.standard.register(defaults: [
             showLineNumbersKey: true,
             showOutlineKey: true,
+            outlineCollapsedKey: false,
         ])
     }
 
@@ -22,5 +24,10 @@ enum Settings {
     static var showOutline: Bool {
         get { UserDefaults.standard.bool(forKey: showOutlineKey) }
         set { UserDefaults.standard.set(newValue, forKey: showOutlineKey) }
+    }
+
+    static var outlineCollapsed: Bool {
+        get { UserDefaults.standard.bool(forKey: outlineCollapsedKey) }
+        set { UserDefaults.standard.set(newValue, forKey: outlineCollapsedKey) }
     }
 }

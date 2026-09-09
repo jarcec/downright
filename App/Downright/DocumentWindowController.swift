@@ -37,11 +37,12 @@ final class DocumentWindowController: NSWindowController, NSWindowDelegate {
             scroll.trailingAnchor.constraint(equalTo: container.trailingAnchor),
             outline.topAnchor.constraint(equalTo: container.topAnchor, constant: 12),
             outline.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -28),
-            outline.widthAnchor.constraint(equalToConstant: 230),
         ])
         window.contentView = container
 
         outline.onSelect = { [weak self] offset in self?.editor.scroll(to: offset) }
+        outline.isCollapsed = Settings.outlineCollapsed
+        outline.onCollapsedChange = { Settings.outlineCollapsed = $0 }
         editor.onDocumentChange = { [weak self] in self?.documentChanged() }
         editor.onSelectionChange = { [weak self] in self?.selectionChanged() }
 
@@ -81,6 +82,7 @@ final class DocumentWindowController: NSWindowController, NSWindowDelegate {
     private func applySettings() {
         gutter.isHidden = !Settings.showLineNumbers
         outline.isHidden = !Settings.showOutline || editor.headings().isEmpty
+        outline.isCollapsed = Settings.outlineCollapsed
     }
 
     private func documentChanged() {

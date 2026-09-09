@@ -5,13 +5,25 @@ import AppKit
 @MainActor
 public final class OutlineOverlayView: NSVisualEffectView, NSTableViewDataSource, NSTableViewDelegate {
     public var onSelect: ((Int) -> Void)?
+    /// Called when the user collapses or expands the panel, so the host can persist it.
+    public var onCollapsedChange: ((Bool) -> Void)?
     public var maxHeight: CGFloat = 360 { didSet { updateHeight() } }
+
+    /// Collapsed shows only the header pill; a click expands it again.
+    public var isCollapsed = false {
+        didSet { guard isCollapsed != oldValue else { return }; applyCollapsed() }
+    }
 
     private var headings: [EditorController.Heading] = []
     private let table = NSTableView()
     private let scroll = NSScrollView()
+    private let header = NSButton()
     private var heightConstraint: NSLayoutConstraint!
+    private var widthConstraint: NSLayoutConstraint!
     private let rowHeight: CGFloat = 20
+    private let headerHeight: CGFloat = 24
+    private let expandedWidth: CGFloat = 230
+    private let collapsedWidth: CGFloat = 96
     private var suppressSelection = false
 
     public override init(frame frameRect: NSRect) {
@@ -49,15 +61,53 @@ public final class OutlineOverlayView: NSVisualEffectView, NSTableViewDataSource
         scroll.autohidesScrollers = true
         scroll.scrollerStyle = .overlay
         scroll.translatesAutoresizingMaskIntoConstraints = false
+
+        // Header: the whole row is a button that toggles collapse.
+        header.isBordered = false
+        header.bezelStyle = .inline
+        header.imagePosition = .imageTrailing
+        header.alignment = .left
+        header.font = .systemFont(ofSize: 11, weight: .semibold)
+        header.contentTintColor = .secondaryLabelColor
+        header.target = self
+        header.action = #selector(toggleCollapsed(_:))
+        header.translatesAutoresizingMaskIntoConstraints = false
+        header.setButtonType(.momentaryChange)
+        header.focusRingType = .none
+        header.toolTip = "Collapse or expand the outline"
+
+        addSubview(header)
         addSubview(scroll)
         NSLayoutConstraint.activate([
-            scroll.topAnchor.constraint(equalTo: topAnchor, constant: 6),
+            header.topAnchor.constraint(equalTo: topAnchor, constant: 2),
+            header.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 10),
+            header.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8),
+            header.heightAnchor.constraint(equalToConstant: headerHeight - 4),
+            scroll.topAnchor.constraint(equalTo: header.bottomAnchor, constant: 2),
             scroll.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -6),
             scroll.leadingAnchor.constraint(equalTo: leadingAnchor),
             scroll.trailingAnchor.constraint(equalTo: trailingAnchor),
         ])
         heightConstraint = heightAnchor.constraint(equalToConstant: 40)
         heightConstraint.isActive = true
+        widthConstraint = widthAnchor.constraint(equalToConstant: expandedWidth)
+        widthConstraint.isActive = true
+        applyCollapsed()
+    }
+
+    @objc private func toggleCollapsed(_ sender: Any?) {
+        isCollapsed.toggle()
+        onCollapsedChange?(isCollapsed)
+    }
+
+    private func applyCollapsed() {
+        scroll.isHidden = isCollapsed
+        header.title = isCollapsed ? "Outline" : "Outline"
+        let symbol = isCollapsed ? "chevron.down" : "chevron.up"
+        header.image = NSImage(systemSymbolName: symbol, accessibilityDescription: isCollapsed ? "Expand" : "Collapse")
+        header.image?.isTemplate = true
+        widthConstraint.constant = isCollapsed ? collapsedWidth : expandedWidth
+        updateHeight()
     }
 
     @available(*, unavailable)
@@ -88,8 +138,9 @@ public final class OutlineOverlayView: NSVisualEffectView, NSTableViewDataSource
     }
 
     private func updateHeight() {
-        let h = min(maxHeight, CGFloat(headings.count) * rowHeight + 12)
-        heightConstraint.constant = max(h, 32)
+        if isCollapsed { heightConstraint.constant = headerHeight; return }
+        let h = min(maxHeight, CGFloat(headings.count) * rowHeight + headerHeight + 8)
+        heightConstraint.constant = max(h, headerHeight + 8)
     }
 
     @objc private func rowClicked(_ sender: Any?) {
