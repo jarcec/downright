@@ -9,9 +9,9 @@ Design documents live in `designs/` (idea → PRD/TRD → plan → findings).
 ## Install from source
 
 ```sh
-scripts/install.sh            # build, install to /Applications, link the `downright` command
-scripts/install.sh --test     # run the test suite first
-scripts/install.sh --open notes.md
+./devtool                 # build, install to /Applications, link the `downright` command
+./devtool --test          # run the test suite first
+./devtool --open notes.md
 ```
 
 Requires Xcode; `xcodegen` is installed via Homebrew if missing. Local builds are

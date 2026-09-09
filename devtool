@@ -2,17 +2,17 @@
 # Build Downright from this checkout and install it to /Applications, plus the
 # `downright` shell command. Idempotent; re-run after pulling changes.
 #
-#   scripts/install.sh              build Release, install app + CLI, relaunch if it was running
-#   scripts/install.sh --test       run the Swift test suite first (aborts on failure)
-#   scripts/install.sh --clean      wipe the build directory first
-#   scripts/install.sh --force      SIGKILL a running app that refuses to quit (unsaved changes!)
-#   scripts/install.sh --open FILE  open FILE after installing
+#   ./devtool              build Release, install app + CLI, relaunch if it was running
+#   ./devtool --test       run the Swift test suite first (aborts on failure)
+#   ./devtool --clean      wipe the build directory first
+#   ./devtool --force      SIGKILL a running app that refuses to quit (unsaved changes!)
+#   ./devtool --open FILE  open FILE after installing
 #
 # Requirements: Xcode command-line tools; xcodegen (installed via Homebrew if missing).
 
 set -eu
 
-REPO=$(cd "$(dirname "$0")/.." && pwd)
+REPO=$(cd "$(dirname "$0")" && pwd)
 APP_DIR="$REPO/App"
 BUILD_DIR="$APP_DIR/build"
 PRODUCT="$BUILD_DIR/Build/Products/Release/Downright.app"
