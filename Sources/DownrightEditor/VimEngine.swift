@@ -12,7 +12,7 @@ public final class VimEngine {
     public var isEnabled = false {
         didSet {
             guard isEnabled != oldValue else { return }
-            if isEnabled { enterNormal() } else { mode = .insert; resetPending() }
+            if isEnabled { enterNormal() } else { mode = .insert; resetPending(); textView?.insertionPointColor = .textColor; (textView as? MarkdownTextView)?.vimModeDidChange() }
             onStateChange?()
         }
     }
@@ -141,6 +141,7 @@ public final class VimEngine {
         resetPending()
         commandLine = ""
         textView?.insertionPointColor = .systemOrange
+        (textView as? MarkdownTextView)?.vimModeDidChange()
         onStateChange?()
     }
 
@@ -148,6 +149,7 @@ public final class VimEngine {
         mode = .insert
         resetPending()
         textView?.insertionPointColor = .textColor
+        (textView as? MarkdownTextView)?.vimModeDidChange()
         onStateChange?()
     }
 

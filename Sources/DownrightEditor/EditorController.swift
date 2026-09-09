@@ -237,12 +237,44 @@ public final class EditorController: NSObject, NSTextViewDelegate, @preconcurren
 
     public func textDidChange(_ notification: Notification) {
         flushPendingEdit()
+        textView.updateBlockCursor()
     }
 
     public func textViewDidChangeSelection(_ notification: Notification) {
         guard pendingEdit == nil else { return }   // the edit flush recomputes reveal itself
         updateReveal()
         onSelectionChange?()
+    }
+
+    // MARK: - Geometry
+
+    /// Caret rectangle (zero width) for `offset`, in text view coordinates.
+    func caretRect(at offset: Int) -> NSRect? {
+        guard let loc = contentStorage.location(contentStorage.documentRange.location, offsetBy: min(offset, textStorage.length)) else { return nil }
+        var rect: NSRect? = nil
+        layoutManager.enumerateTextSegments(in: NSTextRange(location: loc), type: .selection, options: [.rangeNotRequired]) { _, frame, _, _ in
+            rect = frame; return false
+        }
+        guard var r = rect else { return nil }
+        r.origin.x += textView.textContainerInset.width
+        r.origin.y += textView.textContainerInset.height
+        return r
+    }
+
+    /// Advance width of the character at `offset` in the current layout, or nil at a line
+    /// end / document end. Used for vim's block cursor.
+    func characterWidth(at offset: Int) -> CGFloat? {
+        guard offset < textStorage.length,
+              let loc = contentStorage.location(contentStorage.documentRange.location, offsetBy: offset),
+              let fragment = layoutManager.textLayoutFragment(for: loc),
+              let elementRange = fragment.textElement?.elementRange else { return nil }
+        let local = contentStorage.offset(from: elementRange.location, to: loc)
+        guard let lf = fragment.textLineFragments.first(where: { $0.characterRange.contains(local) }) else { return nil }
+        let ch = (textStorage.string as NSString).character(at: offset)
+        if ch == 10 { return nil }
+        let a = lf.locationForCharacter(at: local).x
+        let b = lf.locationForCharacter(at: local + 1).x
+        return b - a
     }
 
     // MARK: - Statistics (status bar)

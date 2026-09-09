@@ -14,6 +14,48 @@ public final class MarkdownTextView: NSTextView {
         super.keyDown(with: event)
     }
 
+    // MARK: - Block cursor in vim normal/command mode
+
+    // macOS 14+ draws the insertion point with NSTextInsertionIndicator, so
+    // drawInsertionPoint(in:color:turnedOn:) is never called. The block is an overlay
+    // view over the character under the caret; the thin caret is hidden meanwhile.
+    private lazy var blockCursor: NSView = {
+        let v = NSView()
+        v.wantsLayer = true
+        v.layer?.backgroundColor = NSColor.systemOrange.withAlphaComponent(0.45).cgColor
+        v.layer?.cornerRadius = 1.5
+        v.isHidden = true
+        addSubview(v)
+        return v
+    }()
+
+    func vimModeDidChange() {
+        insertionPointColor = (vim.isEnabled && vim.mode != .insert) ? .clear : .textColor
+        updateBlockCursor()
+    }
+
+    public func updateBlockCursor() {
+        guard vim.isEnabled, vim.mode != .insert, let controller,
+              let caret = controller.caretRect(at: selectedRange().location) else {
+            blockCursor.isHidden = true
+            return
+        }
+        var width: CGFloat = font.map { ("m" as NSString).size(withAttributes: [.font: $0]).width * 0.55 } ?? 8
+        if let w = controller.characterWidth(at: selectedRange().location), w > 0.5 { width = w }
+        blockCursor.frame = NSRect(x: caret.minX, y: caret.minY, width: width, height: caret.height)
+        blockCursor.isHidden = false
+    }
+
+    public override func layout() {
+        super.layout()
+        updateBlockCursor()
+    }
+
+    public override func setSelectedRanges(_ ranges: [NSValue], affinity: NSSelectionAffinity, stillSelecting stillSelectingFlag: Bool) {
+        super.setSelectedRanges(ranges, affinity: affinity, stillSelecting: stillSelectingFlag)
+        updateBlockCursor()
+    }
+
     // MARK: - Checkbox clicks
 
     public override func mouseDown(with event: NSEvent) {
