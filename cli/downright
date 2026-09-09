@@ -1,0 +1,57 @@
+#!/bin/sh
+# downright — open Markdown files in Downright.app from the shell.
+#
+# Fire-and-forget: hands the paths to the app through Launch Services and exits
+# immediately. Not suitable as $EDITOR. Nonexistent paths are created empty
+# first, because this shim runs outside the app's sandbox and the app cannot
+# create files at arbitrary locations itself (plan decision D3).
+
+set -eu
+
+# Prefer the installed copy: Launch Services may otherwise pick a build product
+# with the same bundle identifier.
+APP="Downright"
+[ -d /Applications/Downright.app ] && APP="/Applications/Downright.app"
+VERSION="0.0.1"
+
+usage() {
+  cat <<USAGE
+usage: downright [-n] [FILE...]
+
+  FILE        open FILE (created empty if it does not exist)
+  -n, --new   activate the app (creates an untitled document if none is open)
+  -v          print version
+  -h          this help
+USAGE
+}
+
+if [ $# -eq 0 ]; then
+  usage; exit 1
+fi
+
+files=""
+for arg in "$@"; do
+  case "$arg" in
+    -h|--help)    usage; exit 0 ;;
+    -v|--version) echo "downright $VERSION"; exit 0 ;;
+    -n|--new)     open -a "$APP" || exit 2; exit 0 ;;
+    -*)           echo "downright: unknown option: $arg" >&2; usage; exit 1 ;;
+  esac
+  case "$arg" in
+    /*) path="$arg" ;;
+    *)  path="$PWD/$arg" ;;
+  esac
+  if [ ! -e "$path" ]; then
+    dir=$(dirname "$path")
+    if [ ! -d "$dir" ]; then
+      echo "downright: no such directory: $dir" >&2; exit 1
+    fi
+    : > "$path"
+  fi
+  files="$files
+$path"
+done
+
+# shellcheck disable=SC2086
+printf '%s\n' "$files" | sed '/^$/d' | tr '\n' '\0' | xargs -0 open -a "$APP" || exit 2
+exit 0

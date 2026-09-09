@@ -1,0 +1,53 @@
+name: Downright
+options:
+  bundleIdPrefix: com.jarcec
+  deploymentTarget:
+    macOS: "14.0"
+  createIntermediateGroups: true
+  xcodeVersion: "26.0"
+packages:
+  DownrightKit:
+    path: ..
+targets:
+  Downright:
+    type: application
+    platform: macOS
+    sources:
+      - path: Downright
+    dependencies:
+      - package: DownrightKit
+        product: DownrightEditor
+      - package: DownrightKit
+        product: MarkdownKit
+    settings:
+      base:
+        PRODUCT_NAME: Downright
+        PRODUCT_BUNDLE_IDENTIFIER: com.jarcec.Downright
+        MARKETING_VERSION: "0.0.1"
+        CURRENT_PROJECT_VERSION: "1"
+        # Ad-hoc signing for local builds: the Apple Development certificate on this
+        # machine expired 2024-06. App Sandbox is still enforced under an ad-hoc
+        # signature. Switch back to Automatic + DEVELOPMENT_TEAM for TestFlight/App Store.
+        CODE_SIGN_STYLE: Manual
+        CODE_SIGN_IDENTITY: "-"
+        DEVELOPMENT_TEAM: ""
+        PROVISIONING_PROFILE_SPECIFIER: ""
+        CODE_SIGN_ENTITLEMENTS: Downright/Downright.entitlements
+        ENABLE_HARDENED_RUNTIME: YES
+        ENABLE_APP_SANDBOX: YES
+        GENERATE_INFOPLIST_FILE: NO
+        INFOPLIST_FILE: Downright/Info.plist
+        SWIFT_VERSION: "6.0"
+        SWIFT_STRICT_CONCURRENCY: complete
+        MACOSX_DEPLOYMENT_TARGET: "14.0"
+        COMBINE_HIDPI_IMAGES: YES
+        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+schemes:
+  Downright:
+    build:
+      targets:
+        Downright: all
+    run:
+      config: Debug
+    archive:
+      config: Release

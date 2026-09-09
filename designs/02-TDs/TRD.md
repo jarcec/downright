@@ -321,7 +321,7 @@ App Store:
 |---|---|---|
 | Sibling files are not granted | Relative-path images (`![](img/a.png)`) fail to load: access is granted for the *document*, not its directory | Detect the denial and offer a one-time "grant access to this folder" `NSOpenPanel`, persisted as a security-scoped bookmark |
 | Nonexistent paths cannot be opened | Launch Services cannot grant a file that does not exist | The shim, which runs unsandboxed in the shell, `touch`es the file first and then opens it normally (plan decision D3). The app never sees this case |
-| Atomic external rewrites may revoke access | Sandbox extensions are path-based; an external tool that writes-temp-then-renames can invalidate the grant — and LLM tooling writes atomically, so this is the *common* case, not an edge case | Re-acquire via bookmark on write failure; verify behaviour in M1 |
+| ~~Atomic external rewrites may revoke access~~ | Verified **not** to be a problem: the gate rewrote an open document with `mv` twice and the app reloaded both times | — |
 | No Homebrew cask, no direct download | Update cadence and beta distribution are bound to App Review | TestFlight for macOS covers betas |
 
 **Exit codes:** 0 on successful hand-off; 1 on usage error; 2 if the app cannot be located.
@@ -391,10 +391,10 @@ whether Launch Services grants file access to a sandboxed app for a CLI-delivere
 | R3 | Caret/selection edge cases feel subtly broken | Kills the product's core value | Largely retired: identity index mapping removes the whole class. Residual: VoiceOver and IME over concealed runs, untested |
 | R4 | Table live-editing proves impractical | Feature cut | Prototype in M4; documented fallback to aligned pipe source (PRD OQ-2) |
 | R5 | TextKit 2 performance on very large documents | Perf targets missed | Measured in M0, before commitment |
-| R6 | **Launch Services does not grant sandboxed file access for CLI-delivered paths** | Kills `downright FILE`, the product's second pillar | **Highest open risk.** Validate with a signed sandboxed build in the first week of M1, before any editor work. If it fails, the choice is App Store *or* the CLI — not both |
+| R6 | ~~Launch Services does not grant sandboxed file access for CLI-delivered paths~~ | — | **Retired 2026-09-08** by the Phase 0 gate (`R6-FINDINGS.md`): shell-opened paths are granted exactly like Finder-opened ones |
 | R8 | Full-document layout (11.9 s at 10 MB) triggered accidentally | App hangs on large files | Estimated heights for scroll metrics; assert in debug builds that full layout is never requested |
-| R9 | Whole-line concealment needs a custom layout fragment | Pulls M3 work forward | Known and scoped; the fragment is already required for code-block backgrounds |
-| R10 | Sandbox blocks relative-path images and atomic-rewrite reload | Degrades two everyday workflows | Security-scoped bookmarks with a clear one-time grant; verify against atomic writers in M1 |
+| R9 | ~~Whole-line concealment needs a custom layout fragment~~ | — | **Retired:** `DecoratedLayoutFragment` overrides `layoutFragmentFrame` to zero height; following fragments stack correctly (`EditorTests.testFenceLinesCollapseWhenConcealed`) |
+| R10 | Sandbox blocks relative-path images | Degrades image rendering (post-v0) | Security-scoped bookmarks with a one-time folder grant. The atomic-rewrite half is **retired**: the gate showed reloads survive `mv` |
 | R7 | Scope creep toward a vault/PKM app | Loses the product's reason to exist | PRD §5 non-goals treated as binding |
 
 ## 14. Open questions

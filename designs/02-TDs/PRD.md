@@ -266,7 +266,7 @@ have to think about.
 | Milestone | Content |
 |---|---|
 | ~~**M0**~~ | ✅ **Complete** (2026-09-08) — concealment mechanism proven; see `M0-FINDINGS.md` |
-| **M1** | Walking skeleton: document app, open/save/autosave, plain-text editing, CLI shim. **Starts with the sandbox/Launch Services validation (TRD R6).** |
+| **M1** | Walking skeleton: document app, open/save/autosave, plain-text editing, CLI shim. Sandbox/Launch Services gate **passed 2026-09-08** (`R6-FINDINGS.md`). |
 | **M2** | Core hybrid: headings, emphasis, inline code, links, lists, quotes, thematic breaks |
 | **v0** | **First daily-use build.** M1 + M2 + fenced code blocks and clickable task checkboxes, sandboxed and dev-signed, not submitted. Scope and phases in `../03-Plan/v0-plan.md`. |
 | **M3** | Blocks: fenced code with syntax highlighting, task lists, images, frontmatter |
