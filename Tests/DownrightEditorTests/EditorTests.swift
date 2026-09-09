@@ -171,8 +171,12 @@ final class LinkPasteTests: XCTestCase {
                                        windowNumber: 0, context: nil, eventNumber: 0, clickCount: 1, pressure: 1)!
         let titles = c.textView.menu(for: event)?.items.map(\.title) ?? []
         XCTAssertEqual(Array(titles.prefix(4)), ["Insert Link", "Bold", "Italic", "Inline Code"])
+        // Right-clicking on a word auto-selects it (standard NSTextView behaviour), so the
+        // no-selection case must click empty space below the text.
         c.textView.setSelectedRange(NSRange(location: 0, length: 0))
-        let plain = c.textView.menu(for: event)?.items.map(\.title) ?? []
-        XCTAssertFalse(plain.contains("Insert Link"))
+        let empty = NSEvent.mouseEvent(with: .rightMouseDown, location: NSPoint(x: 300, y: 500), modifierFlags: [], timestamp: 0,
+                                       windowNumber: 0, context: nil, eventNumber: 0, clickCount: 1, pressure: 1)!
+        let plain = c.textView.menu(for: empty)?.items.map(\.title) ?? []
+        XCTAssertFalse(plain.contains("Insert Link"), "menu without selection: \(plain)")
     }
 }
