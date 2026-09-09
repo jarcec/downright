@@ -5,6 +5,7 @@ struct SettingsView: View {
     @AppStorage(Settings.showLineNumbersKey) private var showLineNumbers = true
     @AppStorage(Settings.showOutlineKey) private var showOutline = true
     @AppStorage(Settings.appearanceKey) private var appearance = Settings.Appearance.system.rawValue
+    @AppStorage(Settings.vimModeKey) private var vimMode = true
 
     var body: some View {
         Form {
@@ -17,6 +18,12 @@ struct SettingsView: View {
             Section("Editor") {
                 Toggle("Show line numbers", isOn: $showLineNumbers)
                 Toggle("Show outline", isOn: $showOutline)
+            }
+            Section("Keys") {
+                Toggle("Vim mode", isOn: $vimMode)
+                Text("Normal/insert/command modes with counts, d y c operators, h j k l w b e 0 ^ $ G gg motions, x D p P u ⌃R, and :w :q :wq :q!.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
         }
         .formStyle(.grouped)

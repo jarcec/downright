@@ -29,10 +29,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         Settings.showOutline.toggle()
     }
 
+    @objc func toggleVimMode(_ sender: Any?) {
+        Settings.vimMode.toggle()
+    }
+
     func validateMenuItem(_ item: NSMenuItem) -> Bool {
         switch item.action {
         case #selector(toggleLineNumbers(_:)): item.state = Settings.showLineNumbers ? .on : .off
         case #selector(toggleOutline(_:)): item.state = Settings.showOutline ? .on : .off
+        case #selector(toggleVimMode(_:)): item.state = Settings.vimMode ? .on : .off
         default: break
         }
         return true
@@ -137,6 +142,7 @@ enum MainMenu {
         view.addItem(.separator())
         view.addItem(withTitle: "Show Line Numbers", action: #selector(AppDelegate.toggleLineNumbers(_:)), keyEquivalent: "l").keyEquivalentModifierMask = [.command, .shift]
         view.addItem(withTitle: "Show Outline", action: #selector(AppDelegate.toggleOutline(_:)), keyEquivalent: "o").keyEquivalentModifierMask = [.command, .shift]
+        view.addItem(withTitle: "Vim Mode", action: #selector(AppDelegate.toggleVimMode(_:)), keyEquivalent: "")
         view.addItem(.separator())
         view.addItem(withTitle: "Enter Full Screen", action: #selector(NSWindow.toggleFullScreen(_:)), keyEquivalent: "f").keyEquivalentModifierMask = [.command, .control]
         main.addItem(submenu(view))

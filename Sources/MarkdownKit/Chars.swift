@@ -3,7 +3,7 @@ import Foundation
 /// UTF-16 code unit constants and classification helpers. The parser works on a
 /// `[UInt16]` buffer for O(1) random access with offsets that are already `NSRange`
 /// offsets (plan decision D1).
-enum C {
+public enum C {
     static let tab: UInt16 = 9
     static let newline: UInt16 = 10
     static let space: UInt16 = 32
@@ -33,10 +33,10 @@ enum C {
     static let x: UInt16 = 120
     static let X: UInt16 = 88
 
-    static func isDigit(_ c: UInt16) -> Bool { c >= 48 && c <= 57 }
-    static func isSpaceOrTab(_ c: UInt16) -> Bool { c == space || c == tab }
-    static func isAsciiLetter(_ c: UInt16) -> Bool { (c >= 65 && c <= 90) || (c >= 97 && c <= 122) }
-    static func isAlnum(_ c: UInt16) -> Bool { isDigit(c) || isAsciiLetter(c) }
+    public static func isDigit(_ c: UInt16) -> Bool { c >= 48 && c <= 57 }
+    public static func isSpaceOrTab(_ c: UInt16) -> Bool { c == space || c == tab }
+    public static func isAsciiLetter(_ c: UInt16) -> Bool { (c >= 65 && c <= 90) || (c >= 97 && c <= 122) }
+    public static func isAlnum(_ c: UInt16) -> Bool { isDigit(c) || isAsciiLetter(c) }
 
     static func isWhitespace(_ c: UInt16) -> Bool {
         c == space || c == tab || c == newline || c == 12 || c == 13 || c == 0xA0

@@ -48,6 +48,8 @@ final class DocumentWindowController: NSWindowController, NSWindowDelegate {
         outline.onSelect = { [weak self] offset in self?.editor.scroll(to: offset) }
         outline.isCollapsed = Settings.outlineCollapsed
         outline.onCollapsedChange = { Settings.outlineCollapsed = $0 }
+        editor.textView.vim.onStateChange = { [weak self] in self?.updateStatusLeading() }
+        editor.textView.vim.onExCommand = { [weak self] cmd in self?.runExCommand(cmd) }
         editor.onDocumentChange = { [weak self] in self?.documentChanged() }
         editor.onSelectionChange = { [weak self] in self?.selectionChanged() }
 
@@ -92,6 +94,7 @@ final class DocumentWindowController: NSWindowController, NSWindowDelegate {
         gutter.isHidden = !Settings.showLineNumbers
         outline.isHidden = !Settings.showOutline || editor.headings().isEmpty
         outline.isCollapsed = Settings.outlineCollapsed
+        editor.textView.vim.isEnabled = Settings.vimMode
     }
 
     private var stats = EditorController.Statistics(lines: 0, words: 0, characters: 0)
@@ -116,6 +119,33 @@ final class DocumentWindowController: NSWindowController, NSWindowDelegate {
         let pos = editor.caretPosition()
         let f = NumberFormatter(); f.numberStyle = .decimal
         func n(_ v: Int) -> String { f.string(from: NSNumber(value: v)) ?? "\(v)" }
-        statusBar.leadingText = "Ln \(pos.line), Col \(pos.column)   ·   \(n(stats.lines)) lines   \(n(stats.words)) words   \(n(stats.characters)) chars"
+        var text = "Ln \(pos.line), Col \(pos.column)   ·   \(n(stats.lines)) lines   \(n(stats.words)) words   \(n(stats.characters)) chars"
+        let vim = editor.textView.vim
+        if vim.isEnabled { text = vim.statusText + "   ·   " + text }
+        statusBar.leadingText = text
+    }
+
+    // MARK: - Vim ex commands
+
+    private func runExCommand(_ cmd: String) {
+        guard let doc = document as? NSDocument else { return }
+        switch cmd {
+        case "w":
+            doc.save(nil)
+        case "q":
+            window?.performClose(nil)
+        case "wq", "x":
+            if doc.fileURL != nil {
+                doc.save(nil)
+                window?.performClose(nil)
+            } else {
+                doc.save(nil)   // untitled: the save panel decides; user can :q afterwards
+            }
+        case "q!":
+            doc.updateChangeCount(.changeCleared)
+            window?.close()
+        default:
+            NSSound.beep()
+        }
     }
 }

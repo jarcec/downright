@@ -70,6 +70,7 @@ public final class EditorController: NSObject, NSTextViewDelegate, @preconcurren
 
     private func configureTextView() {
         textView.controller = self
+        textView.vim.controller = self
         textView.delegate = self
         textView.isEditable = true
         textView.isSelectable = true

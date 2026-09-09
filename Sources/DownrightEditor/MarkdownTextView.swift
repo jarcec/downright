@@ -6,6 +6,13 @@ import MarkdownKit
 @MainActor
 public final class MarkdownTextView: NSTextView {
     weak var controller: EditorController?
+    /// Modal editing layer; disabled unless the host turns it on.
+    public let vim = VimEngine()
+
+    public override func keyDown(with event: NSEvent) {
+        if vim.handle(event) { return }
+        super.keyDown(with: event)
+    }
 
     // MARK: - Checkbox clicks
 

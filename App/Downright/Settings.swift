@@ -9,6 +9,7 @@ enum Settings {
     static let showOutlineKey = "showOutline"
     static let outlineCollapsedKey = "outlineCollapsed"
     static let appearanceKey = "appearance"
+    static let vimModeKey = "vimMode"
 
     enum Appearance: String, CaseIterable, Identifiable {
         case system, light, dark
@@ -36,6 +37,7 @@ enum Settings {
             showOutlineKey: true,
             outlineCollapsedKey: false,
             appearanceKey: Appearance.system.rawValue,
+            vimModeKey: true,
         ])
     }
 
@@ -58,6 +60,11 @@ enum Settings {
     @MainActor
     static func applyAppearance() {
         NSApp.appearance = appearance.nsAppearance
+    }
+
+    static var vimMode: Bool {
+        get { UserDefaults.standard.bool(forKey: vimModeKey) }
+        set { UserDefaults.standard.set(newValue, forKey: vimModeKey) }
     }
 
     static var outlineCollapsed: Bool {
