@@ -67,6 +67,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 
     /// No Untitled document when the app was launched to open files (`downright FILE`,
     /// Finder double-click); only for a plain launch or Dock click with no windows.
+    /// Launch Services open request (CLI, Finder). Each request opens in a new window;
+    /// several files in one request become tabs of that window.
+    func application(_ application: NSApplication, open urls: [URL]) {
+        DocumentWindowController.beginOpenBatch()
+        openSequentially(urls[...])
+    }
+
+    private func openSequentially(_ urls: ArraySlice<URL>) {
+        guard let url = urls.first else { DocumentWindowController.endOpenBatch(); return }
+        NSDocumentController.shared.openDocument(withContentsOf: url, display: true) { [weak self] _, _, error in
+            if let error { docLog.error("open failed for \(url.path, privacy: .public): \(error.localizedDescription, privacy: .public)") }
+            self?.openSequentially(urls.dropFirst())
+        }
+    }
+
     func applicationShouldOpenUntitledFile(_ sender: NSApplication) -> Bool {
         if let event = NSAppleEventManager.shared().currentAppleEvent,
            event.eventClass == AEEventClass(kCoreEventClass), event.eventID == AEEventID(kAEOpenDocuments) {

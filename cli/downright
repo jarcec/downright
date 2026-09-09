@@ -18,9 +18,9 @@ usage() {
   cat <<USAGE
 usage: downright [-p] [-n] [FILE...]
 
-  FILE        open FILE (created empty if it does not exist); several files
-              open as tabs in one window, e.g.  downright -p *.md
-  -p          open files as tabs (the default; accepted for vim muscle memory)
+  FILE        open FILE (created empty if it does not exist). Each file opens
+              in its own new window.
+  -p          open the given files as tabs of one new window, e.g. downright -p *.md
   -n, --new   activate the app (creates an untitled document if none is open)
   -v          print version
   -h          this help
@@ -31,13 +31,14 @@ if [ $# -eq 0 ]; then
   usage; exit 1
 fi
 
+TABS=0
 files=""
 for arg in "$@"; do
   case "$arg" in
     -h|--help)    usage; exit 0 ;;
     -v|--version) echo "downright $VERSION"; exit 0 ;;
     -n|--new)     open -a "$APP" || exit 2; exit 0 ;;
-    -p)           continue ;;
+    -p)           TABS=1; continue ;;
     -*)           echo "downright: unknown option: $arg" >&2; usage; exit 1 ;;
   esac
   case "$arg" in
@@ -55,6 +56,13 @@ for arg in "$@"; do
 $path"
 done
 
-# shellcheck disable=SC2086
-printf '%s\n' "$files" | sed '/^$/d' | tr '\n' '\0' | xargs -0 open -a "$APP" || exit 2
+if [ "$TABS" = 1 ]; then
+  # One open request → one window with tabs.
+  printf '%s\n' "$files" | sed '/^$/d' | tr '\n' '\0' | xargs -0 open -a "$APP" || exit 2
+else
+  # One request per file → one window per file.
+  printf '%s\n' "$files" | sed '/^$/d' | while IFS= read -r f; do
+    open -a "$APP" "$f" || exit 2
+  done
+fi
 exit 0

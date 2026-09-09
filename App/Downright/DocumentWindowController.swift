@@ -3,8 +3,26 @@ import DownrightEditor
 
 final class DocumentWindowController: NSWindowController, NSWindowDelegate {
     /// Set by File > New (⌘N): the next window opens standalone instead of joining the
-    /// document tab group. Everything else (⌘T, Open…, the CLI) tabs.
+    /// document tab group. ⌘T and Open… tab into the current window.
     static var nextWindowOpensStandalone = false
+
+    /// Files delivered by Launch Services in one request (`downright -p a b`, a Finder
+    /// multi-select) open as tabs in one *new* window: the first becomes the batch host,
+    /// the rest join it. Separate requests get separate windows.
+    private static var inOpenBatch = false
+    private static var batchHost: NSWindow?
+
+    static func beginOpenBatch() {
+        inOpenBatch = true
+        batchHost = nil
+        nextWindowOpensStandalone = true
+    }
+
+    static func endOpenBatch() {
+        inOpenBatch = false
+        batchHost = nil
+        nextWindowOpensStandalone = false
+    }
 
     let editor: EditorController
     private let gutter: LineNumberGutterView
@@ -60,7 +78,14 @@ final class DocumentWindowController: NSWindowController, NSWindowDelegate {
         // request (`downright -p a.md b.md`), so do it explicitly.
         if Self.nextWindowOpensStandalone {
             Self.nextWindowOpensStandalone = false
-            window.tabbingMode = .automatic   // let the system preference decide, don't force a tab
+            // Disallow tabbing while the window is shown — with "Prefer tabs: Always" in
+            // System Settings, .automatic would still tab it onto the key window — then
+            // re-enable so ⌘T and batch mates can join this window later.
+            window.tabbingMode = .disallowed
+            DispatchQueue.main.async { [weak window] in window?.tabbingMode = .preferred }
+            if Self.inOpenBatch { Self.batchHost = window }
+        } else if Self.inOpenBatch, let host = Self.batchHost {
+            host.addTabbedWindow(window, ordered: .above)
         } else if let host = NSApp.windows.last(where: { $0 !== window && $0.tabbingIdentifier == window.tabbingIdentifier && $0.windowController is DocumentWindowController }) {
             host.addTabbedWindow(window, ordered: .above)
             // A real file arriving next to an empty, untouched Untitled (the one the launch
