@@ -86,6 +86,56 @@ public final class MarkdownTextView: NSTextView {
         }
     }
 
+    // MARK: - Context menu
+
+    public override func menu(for event: NSEvent) -> NSMenu? {
+        // Copy: the superclass hands back a shared menu, and inserting into it would persist.
+        let menu = (super.menu(for: event)?.copy() as? NSMenu) ?? NSMenu()
+        guard selectedRange().length > 0 else { return menu }
+        let items: [(String, Selector)] = [
+            ("Insert Link", #selector(insertLink(_:))),
+            ("Bold", #selector(toggleBold(_:))),
+            ("Italic", #selector(toggleItalic(_:))),
+            ("Inline Code", #selector(toggleInlineCode(_:))),
+        ]
+        var index = 0
+        for (title, action) in items {
+            let item = NSMenuItem(title: title, action: action, keyEquivalent: "")
+            item.target = self
+            menu.insertItem(item, at: index)
+            index += 1
+        }
+        menu.insertItem(.separator(), at: index)
+        return menu
+    }
+
+    // MARK: - Paste: a URL over a selection becomes a link (PRD §7.4)
+
+    public override func paste(_ sender: Any?) {
+        let sel = selectedRange()
+        if sel.length > 0, let url = Self.pastedURL() {
+            let text = (string as NSString).substring(with: sel)
+            let replacement = "[\(text)](\(url))"
+            guard shouldChangeText(in: sel, replacementString: replacement) else { return }
+            textStorage?.replaceCharacters(in: sel, with: replacement)
+            didChangeText()
+            setSelectedRange(NSRange(location: sel.location + replacement.utf16.count, length: 0))
+            return
+        }
+        super.paste(sender)
+    }
+
+    /// The pasteboard string if it is a single absolute http(s)/mailto URL.
+    static func pastedURL(from pasteboard: NSPasteboard = .general) -> String? {
+        guard let raw = pasteboard.string(forType: .string) else { return nil }
+        let s = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !s.isEmpty, !s.contains(where: { $0.isWhitespace }),
+              let url = URL(string: s), let scheme = url.scheme?.lowercased(),
+              ["http", "https", "mailto"].contains(scheme) else { return nil }
+        if scheme != "mailto" && url.host == nil { return nil }
+        return s
+    }
+
     // MARK: - Marker toggles (⌘B ⌘I ⌘K ⌘⇧K)
 
     @objc public func toggleBold(_ sender: Any?) { toggle(marker: "**") }

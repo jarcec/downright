@@ -119,3 +119,60 @@ final class EditorTests: XCTestCase {
         XCTAssertGreaterThan(dark, 10, "text should be visible next to the gutter")
     }
 }
+
+@MainActor
+final class LinkPasteTests: XCTestCase {
+    private func make(_ text: String) -> EditorController {
+        let c = EditorController(textStorage: NSTextStorage(string: text))
+        c.layoutManager.textContainer?.size = CGSize(width: 600, height: 1e7)
+        return c
+    }
+
+    func testPastingURLOverSelectionMakesLink() {
+        let c = make("see the docs here")
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString("https://example.com/docs", forType: .string)
+        c.textView.setSelectedRange(NSRange(location: 8, length: 4))   // "docs"
+        c.textView.paste(nil)
+        XCTAssertEqual(c.textView.string, "see the [docs](https://example.com/docs) here")
+    }
+
+    func testPastingPlainTextOverSelectionReplaces() {
+        let c = make("see the docs here")
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString("manual", forType: .string)
+        c.textView.setSelectedRange(NSRange(location: 8, length: 4))
+        c.textView.paste(nil)
+        XCTAssertEqual(c.textView.string, "see the manual here")
+    }
+
+    func testPastingURLWithoutSelectionIsLiteral() {
+        let c = make("x")
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString("https://example.com", forType: .string)
+        c.textView.setSelectedRange(NSRange(location: 1, length: 0))
+        c.textView.paste(nil)
+        XCTAssertEqual(c.textView.string, "xhttps://example.com")
+    }
+
+    func testURLDetection() {
+        let pb = NSPasteboard(name: NSPasteboard.Name("test.\(UUID())"))
+        for (s, ok) in [("https://a.b/c?d=1", true), ("http://x", true), ("mailto:me@x.org", true),
+                        ("not a url", false), ("https://a b", false), ("file:///etc", false), ("example.com", false)] {
+            pb.clearContents(); pb.setString(s, forType: .string)
+            XCTAssertEqual(MarkdownTextView.pastedURL(from: pb) != nil, ok, s)
+        }
+    }
+
+    func testContextMenuOffersInsertLinkForSelection() {
+        let c = make("hello world")
+        c.textView.setSelectedRange(NSRange(location: 0, length: 5))
+        let event = NSEvent.mouseEvent(with: .rightMouseDown, location: NSPoint(x: 10, y: 10), modifierFlags: [], timestamp: 0,
+                                       windowNumber: 0, context: nil, eventNumber: 0, clickCount: 1, pressure: 1)!
+        let titles = c.textView.menu(for: event)?.items.map(\.title) ?? []
+        XCTAssertEqual(Array(titles.prefix(4)), ["Insert Link", "Bold", "Italic", "Inline Code"])
+        c.textView.setSelectedRange(NSRange(location: 0, length: 0))
+        let plain = c.textView.menu(for: event)?.items.map(\.title) ?? []
+        XCTAssertFalse(plain.contains("Insert Link"))
+    }
+}
