@@ -12,7 +12,15 @@ public final class EditorController: NSObject, NSTextViewDelegate, @preconcurren
     public let textContainer: NSTextContainer
     public let textView: MarkdownTextView
     public let scrollView: NSScrollView
-    public var theme: Theme
+    public var theme: Theme {
+        didSet {
+            guard theme != oldValue else { return }
+            engine = DecorationEngine(document: document, lines: lines, theme: theme)
+            storageDelegate.engine = engine
+            invalidate([NSRange(location: 0, length: textStorage.length)])
+            textView.updateBlockCursor()
+        }
+    }
     public var dialect: Dialect = .gfm
 
     public private(set) var document: Document

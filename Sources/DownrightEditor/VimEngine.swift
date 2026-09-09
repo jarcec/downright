@@ -184,7 +184,6 @@ public final class VimEngine {
         headStore = nil
         resetPending()
         commandLine = ""
-        textView?.insertionPointColor = .systemOrange
         (textView as? MarkdownTextView)?.vimModeDidChange()
         onStateChange?()
     }

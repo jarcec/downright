@@ -1,4 +1,5 @@
 import AppKit
+import DownrightEditor
 import SwiftUI
 
 struct SettingsView: View {
@@ -11,6 +12,11 @@ struct SettingsView: View {
                     ForEach(Settings.Appearance.allCases) { Text($0.title).tag($0) }
                 }
                 .pickerStyle(.segmented)
+                colorRow("Syntax markers", value: $settings.markerColor, fallback: Theme.defaultMarkerColor, supportsOpacity: false)
+                colorRow("Vim cursor", value: $settings.cursorColor, fallback: Theme.defaultVimCursorColor, supportsOpacity: true)
+                Text("Markers are the # and ** that appear on the caret's line; the vim cursor is the block shown in normal mode. Defaults are green, the cursor a lighter tone.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
             Section("Editor") {
                 Toggle("Show line numbers", isOn: $settings.showLineNumbers)
@@ -43,8 +49,22 @@ struct SettingsView: View {
             }
         }
         .formStyle(.grouped)
-        .frame(width: 420)
+        .frame(width: 440)
         .fixedSize(horizontal: false, vertical: true)
+    }
+
+    /// Colour picker bound to an optional NSColor, with a Reset control when customised.
+    private func colorRow(_ title: String, value: Binding<NSColor?>, fallback: NSColor, supportsOpacity: Bool) -> some View {
+        HStack {
+            ColorPicker(title, selection: Binding(
+                get: { Color(nsColor: value.wrappedValue ?? fallback) },
+                set: { value.wrappedValue = NSColor($0) }
+            ), supportsOpacity: supportsOpacity)
+            if value.wrappedValue != nil {
+                Button("Reset") { value.wrappedValue = nil }
+                    .controlSize(.small)
+            }
+        }
     }
 }
 

@@ -1,6 +1,7 @@
 import AppKit
 import Combine
 import DownrightConfig
+import DownrightEditor
 import Foundation
 
 /// User settings, stored as a flat TOML file at `~/.config/downright.toml`
@@ -42,6 +43,10 @@ final class Settings: ObservableObject {
     @Published var vimMode = false { didSet { changed() } }
     /// ⌘C copies formatted text (⌘⇧C then copies Markdown source) instead of the reverse.
     @Published var copyRichText = false { didSet { changed() } }
+    /// Colour of revealed syntax markers; nil = theme default (green).
+    @Published var markerColor: NSColor? = nil { didSet { changed() } }
+    /// Vim block-cursor colour; nil = theme default (lighter marker green).
+    @Published var cursorColor: NSColor? = nil { didSet { changed() } }
 
     // Static accessors keep call sites short.
     static var showLineNumbers: Bool { get { shared.showLineNumbers } set { shared.showLineNumbers = newValue } }
@@ -50,6 +55,16 @@ final class Settings: ObservableObject {
     static var appearance: Appearance { get { shared.appearance } set { shared.appearance = newValue } }
     static var vimMode: Bool { get { shared.vimMode } set { shared.vimMode = newValue } }
     static var copyRichText: Bool { get { shared.copyRichText } set { shared.copyRichText = newValue } }
+    static var markerColor: NSColor? { get { shared.markerColor } set { shared.markerColor = newValue } }
+    static var cursorColor: NSColor? { get { shared.cursorColor } set { shared.cursorColor = newValue } }
+
+    /// The editor theme reflecting the current settings.
+    static var theme: Theme {
+        var t = Theme()
+        if let m = shared.markerColor { t.markerColor = m }
+        if let c = shared.cursorColor { t.vimCursorColor = c }
+        return t
+    }
 
     /// Push the chosen appearance to the app. Safe to call repeatedly.
     static func applyAppearance() {
@@ -72,6 +87,7 @@ final class Settings: ObservableObject {
     #
     # appearance: "system" | "light" | "dark"
     # copy_rich_text: when true, ⌘C copies formatted text and ⌘⇧C copies Markdown source
+    # marker_color / cursor_color: "#RRGGBB" or "#RRGGBBAA", or "default"
 
     """
 
@@ -122,11 +138,13 @@ final class Settings: ObservableObject {
         if case .string(let s)? = values["appearance"], let a = Appearance(rawValue: s) { appearance = a }
         if case .bool(let b)? = values["vim_mode"] { vimMode = b }
         if case .bool(let b)? = values["copy_rich_text"] { copyRichText = b }
+        markerColor = { if case .string(let s)? = values["marker_color"] { return Theme.color(hex: s) }; return nil }()
+        cursorColor = { if case .string(let s)? = values["cursor_color"] { return Theme.color(hex: s) }; return nil }()
         NotificationCenter.default.post(name: Self.didChange, object: self)
     }
 
     private var values: [String: TOMLValue] {
-        [
+        var v: [String: TOMLValue] = [
             "line_numbers": .bool(showLineNumbers),
             "outline": .bool(showOutline),
             "outline_collapsed": .bool(outlineCollapsed),
@@ -134,6 +152,10 @@ final class Settings: ObservableObject {
             "vim_mode": .bool(vimMode),
             "copy_rich_text": .bool(copyRichText),
         ]
+        // Colours are written only when customised, so the defaults can evolve.
+        v["marker_color"] = .string(markerColor?.hexString ?? "default")
+        v["cursor_color"] = .string(cursorColor?.hexString ?? "default")
+        return v
     }
 
     private func migrateFromUserDefaults() {

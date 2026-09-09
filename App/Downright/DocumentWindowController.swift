@@ -13,7 +13,7 @@ final class DocumentWindowController: NSWindowController, NSWindowDelegate {
     private let notice = NoticeBarView(frame: .zero)
 
     init(document: MarkdownDocument) {
-        editor = EditorController(textStorage: document.textStorage)
+        editor = EditorController(textStorage: document.textStorage, theme: Settings.theme)
         gutter = LineNumberGutterView(controller: editor)
 
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 860, height: 940),
@@ -137,6 +137,7 @@ final class DocumentWindowController: NSWindowController, NSWindowDelegate {
         outline.isCollapsed = Settings.outlineCollapsed
         editor.textView.vim.isEnabled = Settings.vimMode
         editor.textView.copiesRichTextByDefault = Settings.copyRichText
+        editor.theme = Settings.theme
     }
 
     private var stats = EditorController.Statistics(lines: 0, words: 0, characters: 0)

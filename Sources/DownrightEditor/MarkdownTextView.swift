@@ -22,7 +22,6 @@ public final class MarkdownTextView: NSTextView {
     private lazy var blockCursor: NSView = {
         let v = NSView()
         v.wantsLayer = true
-        v.layer?.backgroundColor = NSColor.systemOrange.withAlphaComponent(0.45).cgColor
         v.layer?.cornerRadius = 1.5
         v.isHidden = true
         addSubview(v)
@@ -43,6 +42,7 @@ public final class MarkdownTextView: NSTextView {
         var width: CGFloat = font.map { ("m" as NSString).size(withAttributes: [.font: $0]).width * 0.55 } ?? 8
         if let w = controller.characterWidth(at: selectedRange().location), w > 0.5 { width = w }
         blockCursor.frame = NSRect(x: caret.minX, y: caret.minY, width: width, height: caret.height)
+        blockCursor.layer?.backgroundColor = controller.theme.vimCursorColor.cgColor
         blockCursor.isHidden = false
     }
 
