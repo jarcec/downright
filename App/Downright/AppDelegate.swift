@@ -65,7 +65,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         docLog.notice("launched \(Bundle.main.bundlePath, privacy: .public) sandboxed=\(ProcessInfo.processInfo.environment["APP_SANDBOX_CONTAINER_ID"] != nil)")
     }
 
-    func applicationShouldOpenUntitledFile(_ sender: NSApplication) -> Bool { true }
+    /// No Untitled document when the app was launched to open files (`downright FILE`,
+    /// Finder double-click); only for a plain launch or Dock click with no windows.
+    func applicationShouldOpenUntitledFile(_ sender: NSApplication) -> Bool {
+        if let event = NSAppleEventManager.shared().currentAppleEvent,
+           event.eventClass == AEEventClass(kCoreEventClass), event.eventID == AEEventID(kAEOpenDocuments) {
+            return false
+        }
+        return true
+    }
 }
 
 enum MainMenu {

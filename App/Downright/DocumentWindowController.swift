@@ -63,6 +63,12 @@ final class DocumentWindowController: NSWindowController, NSWindowDelegate {
             window.tabbingMode = .automatic   // let the system preference decide, don't force a tab
         } else if let host = NSApp.windows.last(where: { $0 !== window && $0.tabbingIdentifier == window.tabbingIdentifier && $0.windowController is DocumentWindowController }) {
             host.addTabbedWindow(window, ordered: .above)
+            // A real file arriving next to an empty, untouched Untitled (the one the launch
+            // created before the open-documents event landed) replaces it.
+            if document.fileURL != nil, let hostDoc = host.windowController?.document as? MarkdownDocument,
+               hostDoc.fileURL == nil, !hostDoc.isDocumentEdited, hostDoc.textStorage.length == 0 {
+                DispatchQueue.main.async { hostDoc.close() }
+            }
         }
 
         outline.onSelect = { [weak self] offset in self?.editor.scroll(to: offset) }
