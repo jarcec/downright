@@ -33,6 +33,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         Settings.vimMode.toggle()
     }
 
+    /// New untitled document in its own window (⌘N).
+    @objc func newWindow(_ sender: Any?) {
+        DocumentWindowController.nextWindowOpensStandalone = true
+        NSDocumentController.shared.newDocument(sender)
+    }
+
     /// New untitled document as a tab of the key window (falls back to a new window).
     @objc func newTab(_ sender: Any?) {
         let host = NSApp.keyWindow ?? NSApp.mainWindow
@@ -83,7 +89,7 @@ enum MainMenu {
 
         // File
         let file = NSMenu(title: "File")
-        file.addItem(withTitle: "New", action: #selector(NSDocumentController.newDocument(_:)), keyEquivalent: "n")
+        file.addItem(withTitle: "New Window", action: #selector(AppDelegate.newWindow(_:)), keyEquivalent: "n")
         file.addItem(withTitle: "New Tab", action: #selector(AppDelegate.newTab(_:)), keyEquivalent: "t")
         file.addItem(withTitle: "Open…", action: #selector(NSDocumentController.openDocument(_:)), keyEquivalent: "o")
         let recent = NSMenu(title: "Open Recent")

@@ -2,6 +2,10 @@ import AppKit
 import DownrightEditor
 
 final class DocumentWindowController: NSWindowController, NSWindowDelegate {
+    /// Set by File > New (⌘N): the next window opens standalone instead of joining the
+    /// document tab group. Everything else (⌘T, Open…, the CLI) tabs.
+    static var nextWindowOpensStandalone = false
+
     let editor: EditorController
     private let gutter: LineNumberGutterView
     private let outline = OutlineOverlayView(frame: .zero)
@@ -49,7 +53,10 @@ final class DocumentWindowController: NSWindowController, NSWindowDelegate {
         // Join the existing document tab group. Automatic tabbing only attaches to the
         // key window, which does not exist yet when several files arrive in one open
         // request (`downright -p a.md b.md`), so do it explicitly.
-        if let host = NSApp.windows.last(where: { $0 !== window && $0.tabbingIdentifier == window.tabbingIdentifier && $0.windowController is DocumentWindowController }) {
+        if Self.nextWindowOpensStandalone {
+            Self.nextWindowOpensStandalone = false
+            window.tabbingMode = .automatic   // let the system preference decide, don't force a tab
+        } else if let host = NSApp.windows.last(where: { $0 !== window && $0.tabbingIdentifier == window.tabbingIdentifier && $0.windowController is DocumentWindowController }) {
             host.addTabbedWindow(window, ordered: .above)
         }
 
