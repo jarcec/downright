@@ -189,13 +189,32 @@ public final class EditorController: NSObject, NSTextViewDelegate, @preconcurren
     private func invalidate(_ ranges: [NSRange]) {
         let merged = RevealPolicy.merge(ranges.filter { $0.length > 0 })
         guard !merged.isEmpty else { return }
+        var clippedRanges: [NSRange] = []
         contentStorage.performEditingTransaction {
             for r in merged {
                 let clipped = NSRange(location: min(r.location, textStorage.length), length: min(r.length, textStorage.length - min(r.location, textStorage.length)))
-                if clipped.length > 0 { textStorage.edited(.editedAttributes, range: clipped, changeInLength: 0) }
+                if clipped.length > 0 {
+                    textStorage.edited(.editedAttributes, range: clipped, changeInLength: 0)
+                    clippedRanges.append(clipped)
+                }
+            }
+        }
+        // Lay the changed paragraphs out now, so anything reading caret geometry in this
+        // run-loop turn (the insertion indicator in particular) sees fresh fragments.
+        for r in clippedRanges where r.length < 20_000 {
+            if let start = contentStorage.location(contentStorage.documentRange.location, offsetBy: r.location),
+               let end = contentStorage.location(start, offsetBy: r.length),
+               let range = NSTextRange(location: start, end: end) {
+                layoutManager.ensureLayout(for: range)
             }
         }
         textView.needsDisplay = true
+        // The indicator was positioned before the relayout; refresh it once layout settled.
+        // Without this the caret vanished when moving onto a line adjacent to a heading.
+        DispatchQueue.main.async { [weak self] in
+            guard let self, self.textView.window?.firstResponder === self.textView else { return }
+            self.textView.updateInsertionPointStateAndRestartTimer(true)
+        }
     }
 
     private func updateReveal(extraInvalidation: [NSRange] = []) {
