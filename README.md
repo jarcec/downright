@@ -14,6 +14,16 @@ downright -n                 # activate / new untitled document
 ```
 
 Settings are stored in `~/.config/downright.toml` and can be edited by hand or managed with chezmoi; changes apply live.
+## Icon
+
+`App/Icon/render-icon.swift` draws the icon with CoreGraphics; `App/Downright/Resources/AppIcon.icns`
+is its output. Regenerate with:
+
+```sh
+swift App/Icon/render-icon.swift App/Icon/Downright.iconset
+iconutil -c icns App/Icon/Downright.iconset -o App/Downright/Resources/AppIcon.icns
+```
+
 ## Develop
 ```sh
 swift test                   # parser, editor and config tests, headless
