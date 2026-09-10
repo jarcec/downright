@@ -97,6 +97,8 @@ public final class MarkdownContentStorageDelegate: NSObject, @preconcurrency NST
             out.addAttribute(.baselineOffset, value: v, range: rel)
         case .kern(let v):
             out.addAttribute(.kern, value: v, range: rel)
+        case .toolTip(let s):
+            out.addAttribute(.toolTip, value: s, range: rel)
         case .traits(let traits):
             out.enumerateAttribute(.font, in: rel) { value, r, _ in
                 let f = (value as? NSFont) ?? NSFont.systemFont(ofSize: NSFont.systemFontSize)

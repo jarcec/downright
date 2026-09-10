@@ -18,6 +18,20 @@ struct SettingsView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
+            Section("Text") {
+                HStack {
+                    Text("Size")
+                    Slider(value: $settings.fontSize, in: 9...32, step: 1)
+                    Text("\(Int(settings.fontSize)) pt").monospacedDigit().frame(width: 44, alignment: .trailing)
+                }
+                HStack {
+                    Text("Reading width")
+                    Slider(value: $settings.maxContentWidth, in: 0...1400, step: 20)
+                    Text(settings.maxContentWidth == 0 ? "full" : "\(Int(settings.maxContentWidth)) pt").monospacedDigit().frame(width: 60, alignment: .trailing)
+                }
+                Text("Width limits the text column and centres it in wide windows; ⌘+ / ⌘− / ⌘0 change the size from the keyboard.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
             Section("Editor") {
                 Toggle("Show line numbers", isOn: $settings.showLineNumbers)
                 Toggle("Show outline", isOn: $settings.showOutline)

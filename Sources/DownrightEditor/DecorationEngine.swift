@@ -66,7 +66,7 @@ public final class DecorationEngine {
         out.styles = [StyleRun(pr, .font(theme.monoFont)), StyleRun(pr, .foreground(theme.textColor))]
         for run in d.styles {
             switch run.op {
-            case .foreground, .link, .strikethrough: out.styles.append(run)
+            case .foreground, .link, .strikethrough, .toolTip: out.styles.append(run)
             default: break
             }
         }
@@ -248,12 +248,14 @@ public final class DecorationEngine {
                 case .code:
                     d.styles.append(StyleRun(r, .mono))
                     d.styles.append(StyleRun(r, .background(theme.codeBackground)))
-                case .link(let dest, _):
+                case .link(let dest, let title):
                     if let url = Self.url(dest) { d.styles.append(StyleRun(r, .link(url))) }
                     d.styles.append(StyleRun(r, .foreground(theme.accentColor)))
+                    d.styles.append(StyleRun(r, .toolTip(title.map { "\($0) — \(dest)" } ?? dest)))
                 case .autolink(let dest):
                     if let url = Self.url(dest) { d.styles.append(StyleRun(r, .link(url))) }
                     d.styles.append(StyleRun(r, .foreground(theme.accentColor)))
+                    d.styles.append(StyleRun(r, .toolTip(dest)))
                 case .image:
                     d.styles.append(StyleRun(r, .foreground(theme.secondaryColor)))
                 case .html:

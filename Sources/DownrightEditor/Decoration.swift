@@ -13,6 +13,8 @@ public enum StyleOp {
     case baselineOffset(CGFloat)
     /// Extra advance after the glyph; tables use it on concealed separators to pad columns.
     case kern(CGFloat)
+    /// Hover tooltip (link destinations).
+    case toolTip(String)
 }
 
 public struct StyleRun {

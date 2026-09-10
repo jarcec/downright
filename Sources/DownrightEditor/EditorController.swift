@@ -27,6 +27,22 @@ public final class EditorController: NSObject, NSTextViewDelegate, @preconcurren
     }
     public var dialect: Dialect = .gfm
 
+    /// Widest text column in points; 0 means use the full width. The column is centred.
+    public var maxContentWidth: CGFloat = 0 { didSet { updateContentInsets() } }
+    private let baseInset = NSSize(width: 28, height: 24)
+
+    func updateContentInsets() {
+        let available = scrollView.contentSize.width
+        var inset = baseInset.width
+        if maxContentWidth > 0, available > maxContentWidth + 2 * baseInset.width {
+            inset = ((available - maxContentWidth) / 2).rounded()
+        }
+        if abs(textView.textContainerInset.width - inset) > 0.5 {
+            textView.textContainerInset = NSSize(width: inset, height: baseInset.height)
+            textView.updateBlockCursor()
+        }
+    }
+
     public private(set) var document: Document
     public private(set) var lines: LineIndex
     public private(set) var engine: DecorationEngine
@@ -149,7 +165,11 @@ public final class EditorController: NSObject, NSTextViewDelegate, @preconcurren
         scrollView.drawsBackground = true
         scrollView.backgroundColor = .textBackgroundColor
         scrollView.autoresizingMask = [.width, .height]
+        scrollView.contentView.postsFrameChangedNotifications = true
+        NotificationCenter.default.addObserver(self, selector: #selector(clipFrameChanged(_:)), name: NSView.frameDidChangeNotification, object: scrollView.contentView)
     }
+
+    @objc private func clipFrameChanged(_ note: Notification) { updateContentInsets() }
 
     // MARK: - Parse & invalidate
 

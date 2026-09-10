@@ -37,6 +37,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         Settings.vimMode.toggle()
     }
 
+    @objc func zoomIn(_ sender: Any?) { Settings.fontSize += 1 }
+    @objc func zoomOut(_ sender: Any?) { Settings.fontSize -= 1 }
+    @objc func actualSize(_ sender: Any?) { Settings.fontSize = 15 }
+
     /// New untitled document in its own window (⌘N).
     @objc func newWindow(_ sender: Any?) {
         DocumentWindowController.nextWindowOpensStandalone = true
@@ -209,6 +213,10 @@ enum MainMenu {
         view.addItem(modeItem)
         let reveal = view.addItem(withTitle: "Toggle Raw Markdown", action: #selector(MarkdownTextView.toggleRevealAll(_:)), keyEquivalent: "r")
         reveal.keyEquivalentModifierMask = [.command, .shift]
+        view.addItem(.separator())
+        view.addItem(withTitle: "Zoom In", action: #selector(AppDelegate.zoomIn(_:)), keyEquivalent: "+")
+        view.addItem(withTitle: "Zoom Out", action: #selector(AppDelegate.zoomOut(_:)), keyEquivalent: "-")
+        view.addItem(withTitle: "Actual Size", action: #selector(AppDelegate.actualSize(_:)), keyEquivalent: "0")
         view.addItem(.separator())
         view.addItem(withTitle: "Show Line Numbers", action: #selector(AppDelegate.toggleLineNumbers(_:)), keyEquivalent: "l").keyEquivalentModifierMask = [.command, .shift]
         view.addItem(withTitle: "Show Outline", action: #selector(AppDelegate.toggleOutline(_:)), keyEquivalent: "o").keyEquivalentModifierMask = [.command, .shift]

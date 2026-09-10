@@ -194,6 +194,7 @@ final class DocumentWindowController: NSWindowController, NSWindowDelegate {
         editor.textView.vim.isEnabled = Settings.vimMode
         editor.textView.copiesRichTextByDefault = Settings.copyRichText
         editor.theme = Settings.theme
+        editor.maxContentWidth = CGFloat(Settings.maxContentWidth)
     }
 
     private var stats = EditorController.Statistics(lines: 0, words: 0, characters: 0)
