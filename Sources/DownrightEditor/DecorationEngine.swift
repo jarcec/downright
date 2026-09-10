@@ -11,6 +11,8 @@ public final class DecorationEngine {
     /// Raw Markdown mode: monospace source with colour hints only — no typography, block
     /// decorations, substitutions or table layout.
     public let sourceMode: Bool
+    /// Lines inside folded sections (set by the controller before decorations are built).
+    public var hiddenLines: Set<Int> = [] { didSet { cache.removeAll() } }
     private var cache: [Int: ParagraphDecoration] = [:]
     private var tableLayouts: [Int: TableLayout] = [:]
     /// Highlight tokens per fenced code block (absolute source ranges), keyed by block start.
@@ -87,6 +89,11 @@ public final class DecorationEngine {
         let pr = lines.paragraphRange(ofLine: li)
         let cr = lines.contentRange(ofLine: li)
         var d = ParagraphDecoration()
+        if hiddenLines.contains(li) {
+            d.role = .hidden
+            d.alwaysConceal = [cr]
+            return d
+        }
         d.lineHeightMultiple = theme.lineHeightMultiple
         d.styles = [StyleRun(pr, .font(theme.bodyFont)), StyleRun(pr, .foreground(theme.textColor))]
 
@@ -224,6 +231,20 @@ public final class DecorationEngine {
             d.styles.append(StyleRun(pr, .font(theme.smallMonoFont)))
             d.styles.append(StyleRun(pr, .foreground(theme.secondaryColor)))
 
+        case .footnoteDefinition:
+            d.styles.append(StyleRun(pr, .font(.systemFont(ofSize: theme.bodySize * 0.85))))
+            d.styles.append(StyleRun(pr, .foreground(theme.secondaryColor)))
+            if li == firstLine, let m = leaf.markerRanges.first {
+                // `[^label]:` → show the label as a superscript, hide the brackets and colon
+                let labelRange = NSRange(location: m.location + 2, length: max(0, m.length - 4))
+                d.conceal.append(NSRange(location: m.location, length: 2))
+                let tail = NSRange(labelRange.end, to: m.end)
+                if tail.length > 0 { d.conceal.append(tail) }
+                d.markerStyles.append(StyleRun(m, .foreground(theme.markerColor)))
+                superscript(labelRange, into: &d)
+            }
+            inlineStyles(leaf, cr: cr, into: &d)
+
         case .blockQuote, .list, .listItem:
             break
         }
@@ -261,6 +282,8 @@ public final class DecorationEngine {
                 case .html:
                     d.styles.append(StyleRun(r, .mono))
                     d.styles.append(StyleRun(r, .foreground(theme.secondaryColor)))
+                case .footnoteReference:
+                    superscript(NSRange(location: r.location + 2, length: max(0, r.length - 3)), into: &d)
                 case .text, .softBreak, .hardBreak, .escape:
                     break
                 }
@@ -418,6 +441,13 @@ public final class DecorationEngine {
                 d.styles.append(StyleRun(first, .kern(max(0, kern - anchorWidth))))
             }
         }
+    }
+
+    private func superscript(_ r: NSRange, into d: inout ParagraphDecoration) {
+        guard r.length > 0 else { return }
+        d.styles.append(StyleRun(r, .font(.systemFont(ofSize: theme.bodySize * 0.65, weight: .medium))))
+        d.styles.append(StyleRun(r, .baselineOffset(theme.bodySize * 0.35)))
+        d.styles.append(StyleRun(r, .foreground(theme.accentColor)))
     }
 
     static func url(_ s: String) -> URL? {

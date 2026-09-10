@@ -319,3 +319,27 @@ final class ParserTests: XCTestCase {
         XCTAssertEqual(t.header.cells.count, 2)
     }
 }
+
+final class FootnoteTests: XCTestCase {
+    func testReferencesAndDefinitions() {
+        let src = "Text with a note[^1] and another[^long-id].\n\n[^1]: The first note.\n[^long-id]: Second, **bold**\n    continued here.\n"
+        let doc = MarkdownParser.parse(src)
+        let dump = doc.dump(source: src)
+        XCTAssertTrue(dump.contains("fnref(1) 16..<20 markers=16+2,19+1"), dump)
+        XCTAssertTrue(dump.contains("fnref(long-id)"), dump)
+        XCTAssertTrue(dump.contains("footnote(1) 45..<"), dump)
+        XCTAssertTrue(dump.contains("footnote(long-id)"), dump)
+        guard case .footnoteDefinition = doc.blocks[2].kind else { return XCTFail("third block should be a footnote definition") }
+        XCTAssertTrue(doc.blocks[2].inlines.contains { $0.kind.label == "strong" }, "definition text is inline-parsed")
+        XCTAssertEqual(doc.blocks[2].contentRanges.count, 2, "continuation line belongs to the definition")
+        XCTAssertTrue(DetectedDialect.detect(in: doc).footnotes)
+    }
+
+    func testNotAFootnote() {
+        let d1 = MarkdownParser.parse("a [^] b\n").dump(source: "a [^] b\n")
+        XCTAssertFalse(d1.contains("fnref"), d1)
+        let d2 = MarkdownParser.parse("[^x] without colon\n").dump(source: "[^x] without colon\n")
+        XCTAssertTrue(d2.hasPrefix("paragraph"), d2)
+        XCTAssertFalse(MarkdownParser.parse("a[^1]\n", dialect: .commonMark).dump(source: "a[^1]\n").contains("fnref"))
+    }
+}

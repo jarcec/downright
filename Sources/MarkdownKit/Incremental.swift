@@ -43,7 +43,9 @@ extension MarkdownParser {
         }
 
         let resumeIndex = stoppedAt.flatMap { candidates[$0] } ?? count
-        func isLRD(_ b: Block) -> Bool { if case .linkReferenceDefinition = b.kind { return true }; return false }
+        func isLRD(_ b: Block) -> Bool {
+            switch b.kind { case .linkReferenceDefinition, .footnoteDefinition: return true; default: return false }
+        }
         // A definition is peeled off the paragraph it starts, so the paragraph after it is
         // the one top-level block whose parse depends on its predecessor: check one block
         // before the restart point too, and also just past the resume point.

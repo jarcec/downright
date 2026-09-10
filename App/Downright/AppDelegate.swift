@@ -216,6 +216,10 @@ enum MainMenu {
         let reveal = view.addItem(withTitle: "Toggle Raw Markdown", action: #selector(MarkdownTextView.toggleRevealAll(_:)), keyEquivalent: "r")
         reveal.keyEquivalentModifierMask = [.command, .shift]
         view.addItem(.separator())
+        view.addItem(withTitle: "Fold Section", action: #selector(MarkdownTextView.foldSection(_:)), keyEquivalent: "[").keyEquivalentModifierMask = [.command, .option]
+        view.addItem(withTitle: "Unfold Section", action: #selector(MarkdownTextView.unfoldSection(_:)), keyEquivalent: "]").keyEquivalentModifierMask = [.command, .option]
+        view.addItem(withTitle: "Unfold All", action: #selector(MarkdownTextView.unfoldAll(_:)), keyEquivalent: "0").keyEquivalentModifierMask = [.command, .option]
+        view.addItem(.separator())
         view.addItem(withTitle: "Zoom In", action: #selector(AppDelegate.zoomIn(_:)), keyEquivalent: "+")
         view.addItem(withTitle: "Zoom Out", action: #selector(AppDelegate.zoomOut(_:)), keyEquivalent: "-")
         view.addItem(withTitle: "Actual Size", action: #selector(AppDelegate.actualSize(_:)), keyEquivalent: "0")

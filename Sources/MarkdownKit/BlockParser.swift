@@ -39,8 +39,10 @@ final class BlockParser {
         var fenceIndent = 0
         // HTML block
         var htmlEnd: HTMLEnd = .blankLine
-        // Link reference definitions peeled off a paragraph at finalisation
+        // Link reference definitions peeled off a paragraph at finalisation (emitted before)
         var lrdSplit: [Node] = []
+        // Further footnote definitions peeled off the same paragraph (emitted after)
+        var trailingSplit: [Node] = []
 
         init(kind: Block.Kind, start: Int) {
             self.kind = kind
@@ -467,6 +469,41 @@ final class BlockParser {
     }
 
     private func finalizeParagraph(_ node: Node) {
+        // Footnote definitions: each `[^label]: text` line starts one; following lines that
+        // are not definitions continue it. Lines before the first definition stay a paragraph.
+        if dialect.footnotes {
+            var lead: [NSRange] = []
+            var groups: [(label: String, markerEnd: Int, lines: [NSRange])] = []
+            for line in node.rawLines {
+                if let (label, end) = footnoteDefinitionPrefix(line) { groups.append((label, end, [line])) }
+                else if groups.isEmpty { lead.append(line) }
+                else { groups[groups.count - 1].lines.append(line) }
+            }
+            if !groups.isEmpty {
+                func configure(_ n: Node, _ g: (label: String, markerEnd: Int, lines: [NSRange])) {
+                    n.kind = .footnoteDefinition(label: g.label)
+                    n.markers = [NSRange(g.lines[0].location, to: g.markerEnd)]
+                    var rest = g.lines
+                    rest[0] = NSRange(g.markerEnd, to: g.lines[0].end)
+                    n.contents = trimLastLine(rest)
+                    n.end = lines.paragraphRange(ofLine: lines.line(containing: g.lines.last!.location)).end
+                    n.open = false
+                }
+                var remaining = groups
+                if lead.isEmpty {
+                    configure(node, remaining.removeFirst())
+                } else {
+                    node.contents = trimLastLine(lead)
+                    node.end = lines.paragraphRange(ofLine: lines.line(containing: lead.last!.location)).end
+                }
+                for g in remaining {
+                    let n = Node(kind: .paragraph, start: lines.lineStarts[lines.line(containing: g.lines[0].location)])
+                    configure(n, g)
+                    node.trailingSplit.append(n)
+                }
+                return
+            }
+        }
         var linesLeft = node.rawLines
         var lrds: [Node] = []
         while let first = linesLeft.first, let (label, dest) = linkReferenceDefinition(first) {
@@ -498,6 +535,20 @@ final class BlockParser {
         return Array(ranges.dropLast()) + trimTrailingSpaces([last])
     }
 
+    /// `[^label]:` followed by whitespace → (label, offset after the marker and its spaces).
+    private func footnoteDefinitionPrefix(_ r: NSRange) -> (String, Int)? {
+        var p = r.location
+        guard p + 2 < r.end, buf[p] == C.lbracket, buf[p + 1] == 94 else { return nil }   // ^
+        p += 2
+        let labelStart = p
+        while p < r.end, buf[p] != C.rbracket, !C.isSpaceOrTab(buf[p]) { p += 1 }
+        guard p < r.end, buf[p] == C.rbracket, p > labelStart, p + 1 < r.end + 1, p + 1 <= r.end - 1, buf[p + 1] == C.colon else { return nil }
+        let label = buf.string(NSRange(labelStart, to: p))
+        p += 2
+        while p < r.end, C.isSpaceOrTab(buf[p]) { p += 1 }
+        return (label, p)
+    }
+
     // MARK: - Conversion
 
     private func convert(_ node: Node) -> [Block] {
@@ -515,7 +566,7 @@ final class BlockParser {
                           markerRanges: node.markers, contentRanges: node.contents)
         block.children = node.children.flatMap { convert($0) }
         switch node.kind {
-        case .paragraph, .heading, .setextHeading:
+        case .paragraph, .heading, .setextHeading, .footnoteDefinition:
             block.inlines = InlineParser(source: buf, contentRanges: node.contents, dialect: dialect,
                                          references: references).parse()
         case .table(var table):
@@ -533,6 +584,11 @@ final class BlockParser {
             break
         }
         out.append(block)
+        for extra in node.trailingSplit {
+            var b = Block(kind: extra.kind, range: NSRange(extra.start, to: extra.end), markerRanges: extra.markers, contentRanges: extra.contents)
+            b.inlines = InlineParser(source: buf, contentRanges: extra.contents, dialect: dialect, references: references).parse()
+            out.append(b)
+        }
         return out
     }
 

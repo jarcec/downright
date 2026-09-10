@@ -23,8 +23,152 @@ public final class EditorController: NSObject, NSTextViewDelegate, @preconcurren
 
     private func rebuildEngine() {
         engine = DecorationEngine(document: document, lines: lines, theme: theme, sourceMode: mode == .raw)
+        pruneFolds()
+        engine.hiddenLines = hiddenLines()
         storageDelegate.engine = engine
     }
+
+    // MARK: - Folding (heading sections and frontmatter)
+
+    /// Start offsets of folded blocks (headings, frontmatter).
+    public private(set) var foldedBlocks: Set<Int> = []
+    public var onFoldsChange: (() -> Void)?
+
+    /// The foldable block starting on `line`, if any.
+    public func foldableBlock(atLine line: Int) -> Block? {
+        guard line < lines.lineCount else { return nil }
+        let start = lines.lineStarts[line]
+        guard let b = document.path(containing: start).first, b.range.location == start else { return nil }
+        switch b.kind {
+        case .heading, .setextHeading, .frontmatter: return b
+        default: return nil
+        }
+    }
+
+    public func isFolded(line: Int) -> Bool {
+        line < lines.lineCount && foldedBlocks.contains(lines.lineStarts[line])
+    }
+
+    /// Lines hidden when `block` is folded: a heading's section runs to the next top-level
+    /// heading of the same or higher level; frontmatter hides all but its first line.
+    func sectionLines(of block: Block) -> Range<Int> {
+        let first = lines.line(containing: block.range.location) + 1
+        switch block.kind {
+        case .frontmatter:
+            return first..<(lines.line(containing: max(block.range.location, block.range.end - 1)) + 1)
+        case .heading(let level), .setextHeading(let level, _):
+            var end = lines.lineCount
+            if lines.lineStarts.last == textStorage.length, lines.lineCount > 1 { end -= 1 }   // phantom line
+            if let idx = document.blocks.firstIndex(where: { $0.range.location == block.range.location }) {
+                for b in document.blocks[(idx + 1)...] {
+                    switch b.kind {
+                    case .heading(let l) where l <= level, .setextHeading(let l, _) where l <= level:
+                        end = lines.line(containing: b.range.location); return first..<max(first, end)
+                    default: continue
+                    }
+                }
+            }
+            return first..<max(first, end)
+        default:
+            return first..<first
+        }
+    }
+
+    private func hiddenLines() -> Set<Int> {
+        var out = Set<Int>()
+        for start in foldedBlocks {
+            guard let b = document.path(containing: start).first, b.range.location == start else { continue }
+            for l in sectionLines(of: b) { out.insert(l) }
+        }
+        return out
+    }
+
+    /// Drop folds whose block no longer exists (after edits).
+    private func pruneFolds() {
+        foldedBlocks = foldedBlocks.filter { start in
+            guard let b = document.path(containing: start).first, b.range.location == start else { return false }
+            switch b.kind { case .heading, .setextHeading, .frontmatter: return true; default: return false }
+        }
+    }
+
+    /// Keep fold anchors in place across an edit.
+    private func shiftFolds(edit: NSRange, delta: Int) {
+        let oldEditEnd = edit.location + edit.length - delta
+        foldedBlocks = Set(foldedBlocks.map { $0 >= oldEditEnd ? $0 + delta : $0 })
+    }
+
+    public func toggleFold(atLine line: Int) {
+        guard let b = foldableBlock(atLine: line) else { return }
+        if foldedBlocks.contains(b.range.location) { foldedBlocks.remove(b.range.location) } else { foldedBlocks.insert(b.range.location) }
+        applyFolds(changed: b)
+    }
+
+    /// Fold the section containing `offset` (the nearest foldable block at or above it).
+    public func foldSection(containing offset: Int) {
+        guard let b = enclosingFoldable(offset) else { return }
+        foldedBlocks.insert(b.range.location)
+        applyFolds(changed: b)
+    }
+
+    public func unfoldSection(containing offset: Int) {
+        guard let b = enclosingFoldable(offset), foldedBlocks.remove(b.range.location) != nil else { return }
+        applyFolds(changed: b)
+    }
+
+    public func unfoldAll() {
+        guard !foldedBlocks.isEmpty else { return }
+        foldedBlocks.removeAll()
+        applyFolds(changed: nil)
+    }
+
+    /// Unfold whatever hides `offset` (before scrolling to it).
+    public func reveal(offset: Int) {
+        let line = lines.line(containing: offset)
+        guard engine.hiddenLines.contains(line) else { return }
+        for start in foldedBlocks {
+            if let b = document.path(containing: start).first, b.range.location == start, sectionLines(of: b).contains(line) {
+                foldedBlocks.remove(start)
+            }
+        }
+        applyFolds(changed: nil)
+    }
+
+    private func enclosingFoldable(_ offset: Int) -> Block? {
+        let line = lines.line(containing: offset)
+        var l = line
+        while l >= 0 {
+            if let b = foldableBlock(atLine: l) {
+                if l == line || sectionLines(of: b).contains(line) { return b }
+                // A heading above whose section ended before us: keep looking up
+            }
+            l -= 1
+        }
+        return nil
+    }
+
+    private func applyFolds(changed: Block?) {
+        engine.hiddenLines = hiddenLines()
+        // Keep the caret out of hidden text
+        let caretLine = lines.line(containing: textView.selectedRange().location)
+        if engine.hiddenLines.contains(caretLine), let b = changed {
+            textView.setSelectedRange(NSRange(location: lines.contentRange(ofLine: lines.line(containing: b.range.location)).end, length: 0))
+        }
+        let range = changed.map { NSRange($0.range.location, to: min(textStorage.length, lines.paragraphRange(ofLine: max(sectionLines(of: $0).last ?? 0, lines.line(containing: $0.range.location))).end)) }
+        invalidate([range ?? NSRange(location: 0, length: textStorage.length)])
+        onFoldsChange?()
+    }
+
+    /// Nearest visible line at or beyond `line` in `direction` (+1/−1), or nil.
+    public func visibleLine(from line: Int, direction: Int) -> Int? {
+        var l = line
+        while l >= 0, l < lines.lineCount {
+            if !engine.hiddenLines.contains(l) { return l }
+            l += direction
+        }
+        return nil
+    }
+
+    public func isLineHidden(_ line: Int) -> Bool { engine.hiddenLines.contains(line) }
     public var dialect: Dialect = .gfm
 
     /// Widest text column in points; 0 means use the full width. The column is centred.
@@ -293,6 +437,7 @@ public final class EditorController: NSObject, NSTextViewDelegate, @preconcurren
         pendingDelta = 0
         let old = document
         let t = CFAbsoluteTimeGetCurrent()
+        shiftFolds(edit: edit, delta: delta)
         replaceDocument(with: MarkdownParser.reparse(previous: old, source: textStorage.string, edit: edit, delta: delta, dialect: dialect))
         let dirty = Self.dirtyRange(old: old, new: document, edit: edit, delta: delta)
         updateReveal(extraInvalidation: [dirty])
@@ -534,6 +679,7 @@ public final class EditorController: NSObject, NSTextViewDelegate, @preconcurren
 
     /// Place the caret at `offset` and scroll so that line sits near the top.
     public func scroll(to offset: Int) {
+        reveal(offset: offset)
         let target = NSRange(location: min(offset, textStorage.length), length: 0)
         textView.setSelectedRange(target)
         textView.scrollRangeToVisible(target)
@@ -575,7 +721,7 @@ public final class EditorController: NSObject, NSTextViewDelegate, @preconcurren
             return .plain
         case .tableRow(let boundaries, let header, let first, let last):
             return .table(boundaries: boundaries, header: header, top: first, bottom: last)
-        case .tableDelimiter:
+        case .tableDelimiter, .hidden:
             return .hidden
         case .fenceOpen(let info):
             return revealed ? .codeBlock(info: info, top: true, bottom: false) : .hidden

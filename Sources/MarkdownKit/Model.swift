@@ -96,6 +96,8 @@ public struct Block: Sendable {
         /// YAML frontmatter at offset 0. Markers: the two `---` lines.
         case frontmatter
         case linkReferenceDefinition
+        /// `[^label]: text` (GFM footnotes). Markers: the `[^label]:` prefix.
+        case footnoteDefinition(label: String)
     }
 
     public var kind: Kind
@@ -156,6 +158,8 @@ public struct Inline: Sendable {
         /// `<https://…>` or a bare URL (GFM). Markers: the angle brackets if present.
         case autolink(destination: String)
         case html
+        /// `[^label]` (GFM footnotes). Markers: `[^` and `]`; the label stays as text.
+        case footnoteReference(label: String)
     }
 
     public var kind: Kind
@@ -179,15 +183,17 @@ public struct Dialect: Sendable, Equatable {
     public var strikethrough: Bool
     public var bareAutolinks: Bool
     public var frontmatter: Bool
+    public var footnotes: Bool
 
-    public init(tables: Bool, taskLists: Bool, strikethrough: Bool, bareAutolinks: Bool, frontmatter: Bool) {
+    public init(tables: Bool, taskLists: Bool, strikethrough: Bool, bareAutolinks: Bool, frontmatter: Bool, footnotes: Bool = true) {
         self.tables = tables
         self.taskLists = taskLists
         self.strikethrough = strikethrough
         self.bareAutolinks = bareAutolinks
         self.frontmatter = frontmatter
+        self.footnotes = footnotes
     }
 
-    public static let commonMark = Dialect(tables: false, taskLists: false, strikethrough: false, bareAutolinks: false, frontmatter: false)
-    public static let gfm = Dialect(tables: true, taskLists: true, strikethrough: true, bareAutolinks: true, frontmatter: true)
+    public static let commonMark = Dialect(tables: false, taskLists: false, strikethrough: false, bareAutolinks: false, frontmatter: false, footnotes: false)
+    public static let gfm = Dialect(tables: true, taskLists: true, strikethrough: true, bareAutolinks: true, frontmatter: true, footnotes: true)
 }

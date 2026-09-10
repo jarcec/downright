@@ -112,6 +112,7 @@ extension Block.Kind {
         case .table(let t): return "table(cols=\(t.columnCount),rows=\(t.rows.count))"
         case .frontmatter: return "frontmatter"
         case .linkReferenceDefinition: return "linkref"
+        case .footnoteDefinition(let l): return "footnote(\(l))"
         }
     }
 }
@@ -131,6 +132,7 @@ extension Inline.Kind {
         case .image(let d, _): return "image(\(d))"
         case .autolink(let d): return "autolink(\(d))"
         case .html: return "html"
+        case .footnoteReference(let l): return "fnref(\(l))"
         }
     }
 }
@@ -145,8 +147,9 @@ public struct DetectedDialect: Equatable, Sendable {
     public var strikethrough = false
     public var frontmatter = false
     public var bareAutolinks = false
+    public var footnotes = false
 
-    public var usesExtensions: Bool { tables || taskLists || strikethrough || frontmatter || bareAutolinks }
+    public var usesExtensions: Bool { tables || taskLists || strikethrough || frontmatter || bareAutolinks || footnotes }
 
     /// "CommonMark", or "GFM" followed by the extensions in use.
     public var summary: String {
@@ -157,6 +160,7 @@ public struct DetectedDialect: Equatable, Sendable {
         if taskLists { parts.append("tasks") }
         if strikethrough { parts.append("strikethrough") }
         if bareAutolinks { parts.append("autolinks") }
+        if footnotes { parts.append("footnotes") }
         return "GFM · " + parts.joined(separator: ", ")
     }
 
@@ -167,6 +171,7 @@ public struct DetectedDialect: Equatable, Sendable {
                 switch n.kind {
                 case .strikethrough: d.strikethrough = true
                 case .autolink: if n.markerRanges.isEmpty { d.bareAutolinks = true }
+                case .footnoteReference: d.footnotes = true
                 default: break
                 }
                 inlines(n.children)
@@ -178,6 +183,7 @@ public struct DetectedDialect: Equatable, Sendable {
                 case .table: d.tables = true
                 case .frontmatter: d.frontmatter = true
                 case .listItem(_, _, let task): if task != nil { d.taskLists = true }
+                case .footnoteDefinition: d.footnotes = true
                 default: break
                 }
                 inlines(b.inlines)

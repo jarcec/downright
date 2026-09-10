@@ -91,17 +91,36 @@ public final class MarkdownTextView: NSTextView {
         super.insertBacktab(sender)
     }
 
-    // Tables: keep the caret out of concealed structure and off the hidden delimiter row.
+    // Tables: keep the caret out of concealed structure and off the hidden delimiter row;
+    // folds: skip hidden lines.
     public override func moveRight(_ sender: Any?) { super.moveRight(sender); controller?.snapCaretOutOfSeparator(movingRight: true) }
     public override func moveLeft(_ sender: Any?) { super.moveLeft(sender); controller?.snapCaretOutOfSeparator(movingRight: false) }
     public override func moveDown(_ sender: Any?) {
         super.moveDown(sender)
         if let c = controller, c.isOnTableDelimiter(selectedRange().location) { super.moveDown(sender) }
+        skipHiddenLines(direction: 1)
     }
     public override func moveUp(_ sender: Any?) {
         super.moveUp(sender)
         if let c = controller, c.isOnTableDelimiter(selectedRange().location) { super.moveUp(sender) }
+        skipHiddenLines(direction: -1)
     }
+
+    private func skipHiddenLines(direction: Int) {
+        guard let c = controller else { return }
+        let line = c.lines.line(containing: selectedRange().location)
+        guard c.isLineHidden(line) else { return }
+        if let target = c.visibleLine(from: line, direction: direction) ?? c.visibleLine(from: line, direction: -direction) {
+            let cr = c.lines.contentRange(ofLine: target)
+            setSelectedRange(NSRange(location: direction > 0 ? cr.location : cr.end, length: 0))
+        }
+    }
+
+    // MARK: - Folding actions
+
+    @objc public func foldSection(_ sender: Any?) { controller?.foldSection(containing: selectedRange().location) }
+    @objc public func unfoldSection(_ sender: Any?) { controller?.unfoldSection(containing: selectedRange().location) }
+    @objc public func unfoldAll(_ sender: Any?) { controller?.unfoldAll() }
 
     // MARK: - Copy: Markdown source or formatted text
 

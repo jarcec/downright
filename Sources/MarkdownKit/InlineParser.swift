@@ -142,6 +142,19 @@ struct InlineParser {
                 }
 
             case C.lbracket:
+                // Footnote reference `[^label]`
+                if dialect.footnotes, pos + 2 < n, buf[pos + 1] == 94 {
+                    var q = pos + 2
+                    while q < n, buf[q] != C.rbracket, !C.isWhitespace(buf[q]) { q += 1 }
+                    if q < n, buf[q] == C.rbracket, q > pos + 2 {
+                        flushText(to: pos)
+                        let node = INode(.footnoteReference(label: buf.string(NSRange(pos + 2, to: q))), pos, q + 1)
+                        node.markers = [NSRange(location: pos, length: 2), NSRange(location: q, length: 1)]
+                        nodes.append(node)
+                        pos = q + 1; textStart = pos
+                        continue
+                    }
+                }
                 flushText(to: pos)
                 let node = INode(.text, pos, pos + 1)
                 node.isBracket = true

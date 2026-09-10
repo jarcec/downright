@@ -687,11 +687,12 @@ public final class VimEngine {
         case .up, .down:
             var target = m == .up ? li - 1 : li + 1
             guard target >= 0, target < lines.lineCount else { return loc }
-            // Skip a table's hidden delimiter row.
-            if controller?.isOnTableDelimiter(lines.lineStarts[target]) == true {
+            // Skip a table's hidden delimiter row and folded lines.
+            while target >= 0, target < lines.lineCount,
+                  controller?.isOnTableDelimiter(lines.lineStarts[target]) == true || controller?.isLineHidden(target) == true {
                 target += m == .up ? -1 : 1
-                guard target >= 0, target < lines.lineCount else { return loc }
             }
+            guard target >= 0, target < lines.lineCount else { return loc }
             let col = loc - cr.location
             let tr = lines.contentRange(ofLine: target)
             return tr.location + min(col, tr.length)

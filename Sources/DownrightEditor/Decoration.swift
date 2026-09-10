@@ -39,6 +39,8 @@ public enum BlockRole: Equatable {
     case tableRow(boundaries: [CGFloat], header: Bool, first: Bool, last: Bool)
     case tableDelimiter
     case html
+    /// Inside a folded section: zero height, nothing drawn.
+    case hidden
 }
 
 /// Everything needed to turn one source line into its display paragraph.

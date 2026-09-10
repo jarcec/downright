@@ -117,6 +117,7 @@ final class DocumentWindowController: NSWindowController, NSWindowDelegate {
         editor.textView.vim.onExCommand = { [weak self] cmd in self?.runExCommand(cmd) }
         editor.onDocumentChange = { [weak self] in self?.documentChanged() }
         editor.onSelectionChange = { [weak self] in self?.selectionChanged() }
+        editor.onFoldsChange = { [weak self] in self?.gutter.needsDisplay = true }
 
         applySettings()
         documentChanged()

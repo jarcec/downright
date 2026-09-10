@@ -48,6 +48,19 @@ public final class LineNumberGutterView: NSView {
         if let w = widthConstraint, abs(t - w.constant) > 0.5 { w.constant = t }
     }
 
+    /// Click on a heading's line number toggles its fold.
+    public override func mouseDown(with event: NSEvent) {
+        guard let c = controller else { return super.mouseDown(with: event) }
+        let p = convert(event.locationInWindow, from: nil)
+        let tv = c.textView
+        let inTV = tv.convert(p, from: self)
+        let point = CGPoint(x: 0, y: inTV.y - tv.textContainerInset.height)
+        guard let frag = c.layoutManager.textLayoutFragment(for: point), let element = frag.textElement?.elementRange else { return }
+        let offset = c.contentStorage.offset(from: c.contentStorage.documentRange.location, to: element.location)
+        let line = c.lines.line(containing: offset)
+        if c.foldableBlock(atLine: line) != nil { c.toggleFold(atLine: line); needsDisplay = true }
+    }
+
     public override func draw(_ dirtyRect: NSRect) {
         NSColor.textBackgroundColor.setFill()
         dirtyRect.fill()
@@ -75,6 +88,15 @@ public final class LineNumberGutterView: NSView {
             let label = "\(line + 1)" as NSString
             let attrs = line == caretLine ? current : normal
             let size = label.size(withAttributes: attrs)
+            // Fold chevron for headings / frontmatter: ▸ when folded, ▾ otherwise
+            if c.foldableBlock(atLine: line) != nil {
+                let folded = c.isFolded(line: line)
+                let chev = (folded ? "▸" : "▾") as NSString
+                let cattrs: [NSAttributedString.Key: Any] = [.font: NSFont.systemFont(ofSize: 9), .foregroundColor: folded ? NSColor.secondaryLabelColor : NSColor.quaternaryLabelColor]
+                let cs = chev.size(withAttributes: cattrs)
+                let cy = self.convert(NSPoint(x: 0, y: yInTextView), from: tv).y + ((f.textLineFragments.first?.typographicBounds.height ?? frame.height) - cs.height) / 2
+                chev.draw(at: NSPoint(x: 3, y: cy), withAttributes: cattrs)
+            }
             // Centre on the first text line; for lines whose text is concealed (rules) the
             // line is ~0pt tall, so centre on the whole fragment instead.
             var lineHeight = f.textLineFragments.first?.typographicBounds.height ?? frame.height

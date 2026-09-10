@@ -60,6 +60,11 @@ public enum RichTextExporter {
                     out.append(NSAttributedString(string: alt, attributes: attrs))
                 case .html:
                     out.append(NSAttributedString(string: src.substring(with: n.range), attributes: attrs))
+                case .footnoteReference(let label):
+                    var a = attrs
+                    let f = attrs[.font] as? NSFont ?? theme.bodyFont
+                    a[.font] = NSFont.systemFont(ofSize: f.pointSize * 0.65); a[.superscript] = 1; a[.foregroundColor] = theme.accentColor
+                    out.append(NSAttributedString(string: label, attributes: a))
                 }
             }
         }
@@ -125,6 +130,12 @@ public enum RichTextExporter {
                     }
                 case .listItem:
                     render(b.children, indent: indent)
+                case .footnoteDefinition(let label):
+                    var a = base(NSFont.systemFont(ofSize: theme.bodySize * 0.85), indent: indent, spacingAfter: 2)
+                    a[.foregroundColor] = theme.secondaryColor
+                    out.append(NSAttributedString(string: label + ". ", attributes: a))
+                    appendInlines(b.inlines, attrs: a)
+                    out.append(NSAttributedString(string: "\n"))
                 case .linkReferenceDefinition:
                     break
                 }
