@@ -148,6 +148,8 @@ enum MainMenu {
         saveAs.keyEquivalentModifierMask = [.command, .shift]
         file.addItem(withTitle: "Revert to Saved…", action: #selector(NSDocument.revertToSaved(_:)), keyEquivalent: "")
         file.addItem(.separator())
+        file.addItem(withTitle: "Export as PDF…", action: #selector(MarkdownDocument.exportPDF(_:)), keyEquivalent: "E").keyEquivalentModifierMask = [.command, .shift]
+        file.addItem(.separator())
         file.addItem(withTitle: "Page Setup…", action: #selector(NSDocument.runPageLayout(_:)), keyEquivalent: "P")
         file.addItem(withTitle: "Print…", action: #selector(NSDocument.printDocument(_:)), keyEquivalent: "p")
         main.addItem(submenu(file))

@@ -1,4 +1,6 @@
 import AppKit
+import DownrightEditor
+import UniformTypeIdentifiers
 import os
 
 let docLog = Logger(subsystem: "com.jarcec.Downright", category: "document")
@@ -50,6 +52,58 @@ final class MarkdownDocument: NSDocument {
         } catch {
             docLog.error("read FAILED from \(url.path, privacy: .public): \(error.localizedDescription, privacy: .public)")
             throw error
+        }
+    }
+
+    // MARK: - Printing and PDF export
+
+    /// A text view holding the rendered document at print size, laid out to the page width.
+    private func printView(for printInfo: NSPrintInfo) -> NSTextView {
+        var theme = Settings.theme
+        theme.bodySize = 11
+        let rich = RichTextExporter.attributedString(markdown: textStorage.string, theme: theme)
+        let width = printInfo.imageablePageBounds.width
+        let view = NSTextView(frame: NSRect(x: 0, y: 0, width: width, height: 10))
+        view.textContainerInset = .zero
+        view.isVerticallyResizable = true
+        view.isHorizontallyResizable = false
+        view.textContainer?.widthTracksTextView = true
+        view.textStorage?.setAttributedString(rich)
+        view.layoutManager?.ensureLayout(for: view.textContainer!)
+        view.sizeToFit()
+        return view
+    }
+
+    override func printOperation(withSettings printSettings: [NSPrintInfo.AttributeKey: Any]) throws -> NSPrintOperation {
+        let info = printInfo.copy() as! NSPrintInfo
+        for (k, v) in printSettings { info.dictionary()[k] = v }
+        info.verticalPagination = .automatic
+        info.horizontalPagination = .fit
+        info.isVerticallyCentered = false
+        let op = NSPrintOperation(view: printView(for: info), printInfo: info)
+        op.jobTitle = displayName
+        return op
+    }
+
+    /// File > Export as PDF…: the print operation, saved straight to a file.
+    @objc func exportPDF(_ sender: Any?) {
+        let panel = NSSavePanel()
+        panel.allowedContentTypes = [.pdf]
+        panel.nameFieldStringValue = (fileURL?.deletingPathExtension().lastPathComponent ?? displayName ?? "Document") + ".pdf"
+        guard let window = windowControllers.first?.window else { return }
+        panel.beginSheetModal(for: window) { [weak self] response in
+            guard let self, response == .OK, let url = panel.url else { return }
+            let info = self.printInfo.copy() as! NSPrintInfo
+            info.jobDisposition = .save
+            info.dictionary()[NSPrintInfo.AttributeKey.jobSavingURL] = url
+            info.verticalPagination = .automatic
+            info.horizontalPagination = .fit
+            info.isVerticallyCentered = false
+            let op = NSPrintOperation(view: self.printView(for: info), printInfo: info)
+            op.showsPrintPanel = false
+            op.showsProgressPanel = false
+            op.jobTitle = self.displayName
+            if !op.run() { docLog.error("PDF export failed for \(url.path, privacy: .public)") }
         }
     }
 
