@@ -188,3 +188,30 @@ final class LinkPasteTests: XCTestCase {
         XCTAssertFalse(plain.contains("Insert Link"), "selection \(c.textView.selectedRange()) menu: \(plain.prefix(6))")
     }
 }
+
+@MainActor
+final class CompactBlankLineTests: XCTestCase {
+    func testBlankLinesAroundHeadingsAreCompactUnlessCaretIsThere() {
+        let s = NSTextStorage(string: "para\n\n# Title\n\nbody\n\nmore\n")
+        //                              0 para,1 blank(before H),2 #,3 blank(after H),4 body,5 blank(plain),6 more
+        let c = EditorController(textStorage: s)
+        c.layoutManager.textContainer?.size = CGSize(width: 600, height: 1e7)
+        c.textView.setSelectedRange(NSRange(location: 0, length: 0))
+        func heights() -> [Int: CGFloat] {
+            var h: [Int: CGFloat] = [:]
+            c.layoutManager.enumerateTextLayoutFragments(from: c.layoutManager.documentRange.location, options: [.ensuresLayout]) { f in
+                let loc = c.contentStorage.offset(from: c.contentStorage.documentRange.location, to: f.textElement!.elementRange!.location)
+                h[c.lines.line(containing: loc)] = f.layoutFragmentFrame.height; return true
+            }
+            return h
+        }
+        var h = heights()
+        XCTAssertLessThan(h[1]!, h[5]! * 0.6, "blank before heading is compact: \(h)")
+        XCTAssertLessThan(h[3]!, h[5]! * 0.6, "blank after heading is compact")
+        XCTAssertGreaterThan(h[5]!, 15, "ordinary blank line keeps full height")
+        // Caret on the compact line restores full height for editing
+        c.textView.setSelectedRange(NSRange(location: 5, length: 0))
+        h = heights()
+        XCTAssertEqual(h[1]!, h[5]!, accuracy: 0.5)
+    }
+}

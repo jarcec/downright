@@ -98,7 +98,14 @@ public final class DecorationEngine {
         d.styles = [StyleRun(pr, .font(theme.bodyFont)), StyleRun(pr, .foreground(theme.textColor))]
 
         let path = document.path(containing: pr.location)
-        guard !path.isEmpty else { return d }
+        guard !path.isEmpty else {
+            // Blank line hugging a heading: draw it compact (unless the caret is on it), so the
+            // customary empty lines around headings don't read as double spacing.
+            if isBlank(cr), isHeadingLine(li - 1) || isHeadingLine(li + 1) {
+                d.concealedStyles.append(StyleRun(pr, .font(.systemFont(ofSize: theme.bodySize * 0.4))))
+            }
+            return d
+        }
 
         var indentColumns = 0
         var quoteDepth = 0
@@ -149,6 +156,20 @@ public final class DecorationEngine {
         guard let leaf = path.last, !leaf.isContainer else { return d }
         leafStyles(leaf, line: li, pr: pr, cr: cr, into: &d)
         return d
+    }
+
+    private func isBlank(_ r: NSRange) -> Bool {
+        guard r.length > 0 else { return true }
+        let s = document.sourceString as NSString
+        for i in r.location..<r.end where !C.isSpaceOrTab(s.character(at: i)) { return false }
+        return true
+    }
+
+    /// Does `line` belong to a heading block (ATX line, or setext text/underline)?
+    private func isHeadingLine(_ line: Int) -> Bool {
+        guard line >= 0, line < lines.lineCount else { return false }
+        guard let b = document.path(containing: lines.lineStarts[line]).last else { return false }
+        switch b.kind { case .heading, .setextHeading: return true; default: return false }
     }
 
     private func leafStyles(_ leaf: Block, line li: Int, pr: NSRange, cr: NSRange, into d: inout ParagraphDecoration) {

@@ -86,7 +86,8 @@ public final class LineNumberGutterView: NSView {
             let offset = c.contentStorage.offset(from: c.contentStorage.documentRange.location, to: element.location)
             let line = c.lines.line(containing: offset)
             let label = "\(line + 1)" as NSString
-            let attrs = line == caretLine ? current : normal
+            var attrs = line == caretLine ? current : normal
+            if frame.height < 14 { attrs[.font] = NSFont.monospacedDigitSystemFont(ofSize: 7.5, weight: .regular) }   // compact blank lines
             let size = label.size(withAttributes: attrs)
             // Fold chevron for headings / frontmatter: ▸ when folded, ▾ otherwise
             if c.foldableBlock(atLine: line) != nil {
