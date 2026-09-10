@@ -199,6 +199,8 @@ public final class EditorController: NSObject, NSTextViewDelegate, @preconcurren
 
     /// Debug counter for the TRD §6.6 budget: paragraphs invalidated by the last reveal change.
     public private(set) var lastRevealInvalidationCount = 0
+    /// Incremented on every character edit; vim uses it to tell which commands changed text.
+    public private(set) var editCount = 0
 
     /// Fired after every reparse (typing, reload). Chrome such as the outline listens.
     public var onDocumentChange: (() -> Void)?
@@ -557,6 +559,7 @@ public final class EditorController: NSObject, NSTextViewDelegate, @preconcurren
     public func textStorage(_ textStorage: NSTextStorage, didProcessEditing editedMask: NSTextStorageEditActions,
                             range editedRange: NSRange, changeInLength delta: Int) {
         guard editedMask.contains(.editedCharacters) else { return }
+        editCount += 1
         pendingEdit = pendingEdit.map { NSUnionRange($0, editedRange) } ?? editedRange
         pendingDelta += delta
         if !flushScheduled {

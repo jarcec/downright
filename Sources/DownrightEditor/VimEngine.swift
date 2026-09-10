@@ -7,7 +7,7 @@ import MarkdownKit
 @MainActor
 public final class VimEngine {
     public enum VisualKind: Equatable { case char, line, block }
-    public enum Mode: Equatable { case normal, insert, command, visual(kind: VisualKind) }
+    public enum Mode: Equatable { case normal, insert, command, visual(kind: VisualKind), search(backward: Bool) }
 
     public private(set) var mode: Mode = .insert
     public var isEnabled = false {
@@ -22,6 +22,7 @@ public final class VimEngine {
         switch mode {
         case .insert: return "-- INSERT --"
         case .command: return ":" + commandLine
+        case .search(let backward): return (backward ? "?" : "/") + searchLine
         case .visual(let kind):
             let name = kind == .line ? "-- VISUAL LINE --" : kind == .block ? "-- VISUAL BLOCK --" : "-- VISUAL --"
             return name + (count > 0 ? " \(count)" : "") + (pendingTextObject.map { " \($0)" } ?? "")
@@ -58,6 +59,15 @@ public final class VimEngine {
     private var pendingFind: Character? = nil
     /// Last find, for `;` (repeat) and `,` (reverse).
     private var lastFind: (kind: Character, target: Character)? = nil
+    /// `/` and `?` search.
+    private(set) var searchLine = ""
+    private var lastSearch: (pattern: String, backward: Bool)? = nil
+    /// `.` repeat: keys of the command being typed, and the last completed change.
+    private var pendingKeys: [Character] = []
+    private var recordingInsertStart: Int? = nil
+    private var lastChange: (keys: [Character], insert: String?)? = nil
+    /// Block-visual I / A: replicate the inserted text onto these lines at Esc.
+    private var blockInsert: (lines: [Int], col: Int, append: Bool)? = nil
     /// Blockwise register (one entry per line) set by block-visual yank/delete.
     private var registerBlock: [String]? = nil
     /// Spaces inserted by `>`.
@@ -77,8 +87,22 @@ public final class VimEngine {
 
         switch mode {
         case .insert:
-            if isEscape { enterNormal(); return true }
+            if isEscape { finishInsertRecording(); enterNormal(); return true }
             return false
+        case .search(let backward):
+            if isEscape { enterNormal(); return true }
+            if event.keyCode == Key.return {
+                let pattern = searchLine
+                enterNormal()
+                if !pattern.isEmpty { lastSearch = (pattern, backward); search(pattern, backward: backward) }
+                return true
+            }
+            if event.keyCode == Key.delete {
+                if searchLine.isEmpty { enterNormal() } else { searchLine.removeLast(); onStateChange?() }
+                return true
+            }
+            if flags.isEmpty, let s = event.characters, !s.isEmpty { searchLine += s; onStateChange?() }
+            return true
         case .command:
             if isEscape { enterNormal(); return true }
             if event.keyCode == Key.return { execute(commandLine); return true }
@@ -123,9 +147,85 @@ public final class VimEngine {
                 return true
             }
             guard let s = event.charactersIgnoringModifiers, let ch = s.first else { return true }
+            if ch == "." { replayLastChange(); return true }
+            let before = controller?.editCount ?? 0
+            pendingKeys.append(ch)
             normal(ch)
+            finishRecording(editCountBefore: before)
             return true
         }
+    }
+
+    // MARK: - `.` repeat
+
+    private var hasPendingInput: Bool {
+        count > 0 || pendingOperator != nil || pendingPrefix != nil || pendingTextObject != nil || pendingFind != nil
+    }
+
+    private func finishRecording(editCountBefore: Int) {
+        switch mode {
+        case .insert:
+            recordingInsertStart = caret          // the change continues until Esc
+        case .normal:
+            if hasPendingInput { return }
+            if (controller?.editCount ?? 0) != editCountBefore { lastChange = (pendingKeys, nil) }
+            pendingKeys = []
+        default:
+            pendingKeys = []                      // visual / command / search are not repeated
+        }
+    }
+
+    private func finishInsertRecording() {
+        guard let start = recordingInsertStart else { return }
+        recordingInsertStart = nil
+        let end = caret
+        let inserted = end >= start ? text.substring(with: NSRange(start, to: min(end, text.length))) : ""
+        if let block = blockInsert {
+            blockInsert = nil
+            applyBlockInsert(inserted, block)
+        } else if !pendingKeys.isEmpty {
+            lastChange = (pendingKeys, inserted)
+        }
+        pendingKeys = []
+    }
+
+    private func replayLastChange() {
+        guard let change = lastChange else { return }
+        let n = max(1, count)
+        count = 0
+        for _ in 0..<n {
+            for ch in change.keys { normal(ch) }
+            if let inserted = change.insert, mode == .insert {
+                textView?.insertText(inserted, replacementRange: NSRange(location: NSNotFound, length: 0))
+                enterNormal()
+            }
+        }
+        lastChange = change
+        pendingKeys = []
+        recordingInsertStart = nil
+        onStateChange?()
+    }
+
+    // MARK: - Search
+
+    private func search(_ pattern: String, backward: Bool) {
+        let s = text
+        guard s.length > 0 else { return }
+        var options: NSString.CompareOptions = []
+        if pattern == pattern.lowercased() { options.insert(.caseInsensitive) }   // smart case
+        let from = caret
+        var found = NSRange(location: NSNotFound, length: 0)
+        if backward {
+            options.insert(.backwards)
+            found = s.range(of: pattern, options: options, range: NSRange(location: 0, length: min(from, s.length)))
+            if found.location == NSNotFound { found = s.range(of: pattern, options: options) }   // wrap
+        } else {
+            let start = min(from + 1, s.length)
+            found = s.range(of: pattern, options: options, range: NSRange(location: start, length: s.length - start))
+            if found.location == NSNotFound { found = s.range(of: pattern, options: options) }   // wrap
+        }
+        guard found.location != NSNotFound else { NSSound.beep(); return }
+        setCaret(found.location)
     }
 
     /// Arrow, Home/End and forward-delete keys, so vim mode does not strand keyboard habits.
@@ -215,6 +315,14 @@ public final class VimEngine {
             resetPending()
         case "g": pendingPrefix = "g"
         case ":": mode = .command; commandLine = ""; resetPending()
+        case "/": mode = .search(backward: false); searchLine = ""; resetPending()
+        case "?": mode = .search(backward: true); searchLine = ""; resetPending()
+        case "n", "N":
+            guard let last = lastSearch else { resetPending(); return }
+            let backward = ch == "n" ? last.backward : !last.backward
+            let times = max(1, count); count = 0
+            for _ in 0..<times { search(last.pattern, backward: backward) }
+            resetPending()
         case "v": enterVisual(kind: .char)
         case "V": enterVisual(kind: .line)
         case "h": motion(.left)
@@ -409,6 +517,7 @@ public final class VimEngine {
         case "c", "s": visualOperate("c")
         case "p", "P": visualPaste()
         case ">", "<": visualOperate(ch)
+        case "I" where kind == .block, "A" where kind == .block: beginBlockInsert(append: ch == "A")
         case "~":
             let ranges = selectedRanges()
             let start = ranges.first?.location ?? currentHead
@@ -458,6 +567,43 @@ public final class VimEngine {
         }
         count = 0
         applyVisualSelection(head: head)
+    }
+
+    /// Block I / A: insert on the first row now; replicate to the other rows at Esc.
+    private func beginBlockInsert(append: Bool) {
+        let head = currentHead
+        let a = lines.line(containing: visualAnchor), b = lines.line(containing: head)
+        let colLo = min(blockAnchorCol, blockHeadCol), colHi = max(blockAnchorCol, blockHeadCol)
+        let rows = Array(min(a, b)...max(a, b))
+        let col = append ? colHi + 1 : colLo
+        mode = .normal
+        headStore = nil
+        (textView as? MarkdownTextView)?.vimModeDidChange()
+        let cr = lines.contentRange(ofLine: rows[0])
+        var pos = cr.location + col
+        if pos > cr.end {
+            if append { insert(String(repeating: " ", count: pos - cr.end), at: cr.end) } else { pos = cr.end }
+        }
+        setCaret(pos)
+        blockInsert = (Array(rows.dropFirst()), col, append)
+        enterInsert()
+        recordingInsertStart = caret
+        pendingKeys = []
+    }
+
+    private func applyBlockInsert(_ inserted: String, _ block: (lines: [Int], col: Int, append: Bool)) {
+        guard !inserted.isEmpty, !inserted.contains("\n"), let tv = textView else { return }
+        tv.undoManager?.beginUndoGrouping()
+        for li in block.lines.reversed() {
+            guard li < lines.lineCount else { continue }
+            let cr = lines.contentRange(ofLine: li)
+            if block.col > cr.length {
+                if block.append { insert(String(repeating: " ", count: block.col - cr.length) + inserted, at: cr.end) }
+                continue   // I skips rows too short to reach the block
+            }
+            insert(inserted, at: cr.location + block.col)
+        }
+        tv.undoManager?.endUndoGrouping()
     }
 
     private func visualOperate(_ op: Character) {

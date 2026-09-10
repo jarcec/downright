@@ -377,3 +377,59 @@ final class VimFindTests: XCTestCase {
         keys("fl"); XCTAssertEqual(c.textView.selectedRange(), NSRange(location: 0, length: 3), "visual f extends")
     }
 }
+
+@MainActor
+final class VimSearchRepeatBlockTests: XCTestCase {
+    private var c: EditorController!
+    private var storage: NSTextStorage!
+    private func load(_ text: String, caret: Int = 0) {
+        storage = NSTextStorage(string: text)
+        c = EditorController(textStorage: storage)
+        c.layoutManager.textContainer?.size = CGSize(width: 600, height: 1e7)
+        c.textView.vim.isEnabled = true
+        c.textView.setSelectedRange(NSRange(location: caret, length: 0))
+    }
+    private func key(_ ch: String, code: UInt16 = 0, flags: NSEvent.ModifierFlags = []) {
+        let e = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: flags, timestamp: 0, windowNumber: 0, context: nil, characters: ch, charactersIgnoringModifiers: ch, isARepeat: false, keyCode: code)!
+        if !c.textView.vim.handle(e) { c.textView.insertText(ch, replacementRange: NSRange(location: NSNotFound, length: 0)) }
+    }
+    private func keys(_ s: String) { for ch in s { key(String(ch)) } }
+    private func enter() { key("\r", code: 36) }
+    private func escape() { key("\u{1B}", code: 53) }
+    private var caret: Int { c.textView.selectedRange().location }
+
+    func testSearchForwardBackwardWrapAndSmartCase() {
+        load("foo bar\nBaz foo\nfoo end", caret: 0)
+        keys("/foo"); XCTAssertEqual(c.textView.vim.statusText, "/foo"); enter()
+        XCTAssertEqual(caret, 12)
+        keys("n"); XCTAssertEqual(caret, 16)
+        keys("n"); XCTAssertEqual(caret, 0, "wraps to the top")
+        keys("N"); XCTAssertEqual(caret, 16, "N reverses")
+        keys("/baz"); enter(); XCTAssertEqual(caret, 8, "lowercase pattern is case-insensitive")
+        keys("?foo"); enter(); XCTAssertEqual(caret, 0)
+        XCTAssertEqual(c.textView.vim.mode, .normal)
+    }
+
+    func testDotRepeatsSimpleAndInsertChanges() {
+        load("aaaa", caret: 0)
+        keys("x"); keys("."); XCTAssertEqual(storage.string, "aa")
+        load("one two three", caret: 0)
+        keys("dw"); keys("."); XCTAssertEqual(storage.string, "three")
+        load("alpha beta", caret: 0)
+        keys("ciwX"); escape(); XCTAssertEqual(storage.string, "X beta")
+        keys("w."); XCTAssertEqual(storage.string, "X X", "repeat of a change-with-insert replays the typed text")
+        load("a\nb\n", caret: 0)
+        keys("A!"); escape(); keys("j."); XCTAssertEqual(storage.string, "a!\nb!\n")
+        keys("3."); XCTAssertEqual(storage.string, "a!\nb!!!!\n", "count before . repeats that many times")
+    }
+
+    func testBlockInsertAndAppend() {
+        load("ab\ncd\nef\n", caret: 0)
+        key("v", flags: .control); keys("jjI"); XCTAssertEqual(c.textView.vim.mode, .insert)
+        keys("- "); escape()
+        XCTAssertEqual(storage.string, "- ab\n- cd\n- ef\n")
+        load("ab\nc\nefg\n", caret: 1)
+        key("v", flags: .control); keys("jjA"); keys(";"); escape()
+        XCTAssertEqual(storage.string, "ab;\nc ;\nef;g\n", "A appends after the block edge, padding short rows")
+    }
+}
