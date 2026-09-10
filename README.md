@@ -20,3 +20,7 @@ swift test                   # parser, editor and config tests, headless
 ```
 
 `Sources/MarkdownKit` is the CommonMark/GFM parser (pure Swift), `Sources/DownrightEditor` the TextKit 2 rendering and editing layer, `Sources/DownrightConfig` the settings file format, and `App/` the document-based app (Xcode project generated from `project.yml`).
+
+## License
+
+Apache License 2.0 — see [LICENSE](LICENSE).
