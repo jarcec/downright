@@ -6,3 +6,4 @@ DerivedData/
 build/
 .DS_Store
 App/Icon/Downright.iconset/
+dist/
