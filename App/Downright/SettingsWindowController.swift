@@ -4,6 +4,7 @@ import SwiftUI
 
 struct SettingsView: View {
     @ObservedObject var settings = Settings.shared
+    @State private var defaultStatus = ""
 
     var body: some View {
         Form {
@@ -47,6 +48,18 @@ struct SettingsView: View {
                 Text("Normal, insert, visual (v / V / ⌃V) and command modes with counts; d y c > < operators with motions, f/t finds and text objects (iw aw, quotes, brackets, ip ap); / ? n N search; . repeat; block I/A; ~ x D p P u ⌃R; :w :q :wq :q!.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
+            }
+            Section("Files") {
+                HStack {
+                    Text("Open .md files in Downright by default")
+                    Spacer()
+                    Button(defaultStatus.isEmpty ? "Make Default" : defaultStatus) {
+                        Settings.makeDefaultForMarkdown { error in
+                            defaultStatus = error == nil ? "Done ✓" : "Failed"
+                        }
+                    }
+                    .controlSize(.small)
+                }
             }
             Section {
                 HStack {

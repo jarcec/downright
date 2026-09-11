@@ -1,5 +1,6 @@
 import AppKit
 import Combine
+import UniformTypeIdentifiers
 import DownrightConfig
 import DownrightEditor
 import Foundation
@@ -71,6 +72,25 @@ final class Settings: ObservableObject {
         if let m = shared.markerColor { t.markerColor = m }
         if let c = shared.cursorColor { t.vimCursorColor = c }
         return t
+    }
+
+    /// Make Downright the default app for Markdown files (the UTIs behind .md/.markdown).
+    static func makeDefaultForMarkdown(completion: @escaping @MainActor (Error?) -> Void) {
+        let types = ["md", "markdown", "mdown", "mkd"].compactMap { UTType(filenameExtension: $0) }
+        var unique: [UTType] = []
+        for t in types where !unique.contains(t) { unique.append(t) }
+        var remaining = unique.count
+        var firstError: Error?
+        guard remaining > 0 else { completion(nil); return }
+        for type in unique {
+            NSWorkspace.shared.setDefaultApplication(at: Bundle.main.bundleURL, toOpen: type) { error in
+                Task { @MainActor in
+                    if firstError == nil { firstError = error }
+                    remaining -= 1
+                    if remaining == 0 { completion(firstError) }
+                }
+            }
+        }
     }
 
     /// Push the chosen appearance to the app. Safe to call repeatedly.
