@@ -283,7 +283,14 @@ unit-testable and keeps reveal behavior from drifting as features are added.
 
 ## 9. Command line interface
 
-**Distribution is the Mac App Store**, which means the app is sandboxed
+> **Decision changed 2026-09-11:** Downright is distributed directly as GitHub releases,
+> not through the App Store, and is **no longer sandboxed**. The consequences table below
+> is kept for the record; none of the sandbox costs apply. The app installs its own CLI
+> shim (shipped in the bundle) and offers to move itself to /Applications on first launch.
+> Gatekeeper-clean downloads need a Developer ID certificate and notarization, which
+> `./devtool release` performs when configured.
+
+**Distribution was originally the Mac App Store**, which means the app is sandboxed
 (`com.apple.security.app-sandbox`). That is a product decision; this section specifies how
 the CLI works within it and what it costs.
 

@@ -290,7 +290,7 @@ v0 is the first daily-use build; M5 is the first shareable one.
   start the slide toward a vault?
 - **OQ-4 — Stdin.** `llm ... | downright -` is an attractive fit for the LLM workflow but
   requires deciding what the buffer's identity and save target are. Deferred, not rejected.
-- ~~**OQ-5 — Distribution channel.**~~ **Resolved: Mac App Store.** The sandbox
+- ~~**OQ-5 — Distribution channel.**~~ **Re-resolved 2026-09-11: direct distribution via GitHub releases, no sandbox** (superseding the App Store decision below). The sandbox
   consequences are enumerated in TRD §9 and reflected in §7.3 and §10 above. One
   dependency remains: whether Launch Services grants a sandboxed app access to a
   CLI-delivered path (TRD risk R6). That must be proven in the first week of M1 — if it

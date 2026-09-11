@@ -8,7 +8,13 @@
 #   ./devtool --force      SIGKILL a running app that refuses to quit (unsaved changes!)
 #   ./devtool --open FILE  open FILE after installing
 #
-# Requirements: Xcode command-line tools; xcodegen (installed via Homebrew if missing).
+#   ./devtool release X.Y.Z [--notes FILE]
+#       set the version, build Release, sign (Developer ID + notarization when
+#       DOWNRIGHT_SIGN_IDENTITY / DOWNRIGHT_NOTARY_PROFILE are set, ad-hoc otherwise),
+#       zip, tag vX.Y.Z, push, and publish a GitHub release with the zip attached.
+#
+# Requirements: Xcode command-line tools; xcodegen (installed via Homebrew if missing);
+# `gh` authenticated for releases.
 
 set -eu
 
@@ -19,6 +25,88 @@ PRODUCT="$BUILD_DIR/Build/Products/Release/Downright.app"
 DEST="/Applications/Downright.app"
 SHIM="$REPO/cli/downright"
 
+step() { printf '\033[1;34m==>\033[0m %s\n' "$*"; }
+die()  { printf '\033[1;31merror:\033[0m %s\n' "$*" >&2; exit 1; }
+
+# ── release ───────────────────────────────────────────────────────────────────
+if [ "${1:-}" = "release" ]; then
+  shift
+  VERSION="${1:-}"; [ -n "$VERSION" ] || die "usage: ./devtool release X.Y.Z [--notes FILE]"
+  shift
+  NOTES_FILE=""
+  while [ $# -gt 0 ]; do case "$1" in --notes) shift; NOTES_FILE="$1" ;; *) die "unknown option: $1" ;; esac; shift; done
+  case "$VERSION" in [0-9]*.[0-9]*.[0-9]*) ;; *) die "version must look like 1.2.3" ;; esac
+  command -v gh >/dev/null || die "gh not found (brew install gh)"
+  gh auth status >/dev/null 2>&1 || die "gh is not authenticated (gh auth login)"
+  [ -z "$(git -C "$REPO" status --porcelain)" ] || die "working tree is not clean; commit or stash first"
+  git -C "$REPO" rev-parse "v$VERSION" >/dev/null 2>&1 && die "tag v$VERSION already exists"
+
+  step "Setting version $VERSION"
+  sed -i '' -E "s/MARKETING_VERSION: \"[0-9.]+\"/MARKETING_VERSION: \"$VERSION\"/" "$APP_DIR/project.yml"
+  BUILD_NUMBER=$(git -C "$REPO" rev-list --count HEAD)
+  sed -i '' -E "s/CURRENT_PROJECT_VERSION: \"[0-9]+\"/CURRENT_PROJECT_VERSION: \"$BUILD_NUMBER\"/" "$APP_DIR/project.yml"
+  (cd "$APP_DIR" && xcodegen generate >/dev/null)
+
+  SIGN_IDENTITY="${DOWNRIGHT_SIGN_IDENTITY:-}"
+  if [ -n "$SIGN_IDENTITY" ]; then
+    step "Building Release, signing with: $SIGN_IDENTITY"
+    SIGN_ARGS="CODE_SIGN_IDENTITY=$SIGN_IDENTITY OTHER_CODE_SIGN_FLAGS=--timestamp"
+  else
+    step "Building Release (ad-hoc signed — set DOWNRIGHT_SIGN_IDENTITY to a Developer ID for Gatekeeper-clean downloads)"
+    SIGN_ARGS=""
+  fi
+  rm -rf "$BUILD_DIR"
+  LOG=$(mktemp -t downright-release)
+  # shellcheck disable=SC2086
+  xcodebuild -project "$APP_DIR/Downright.xcodeproj" -scheme Downright -configuration Release \
+    -derivedDataPath "$BUILD_DIR" $SIGN_ARGS build >"$LOG" 2>&1 || { grep -E "error:" "$LOG" | head -20 >&2; die "build failed (log: $LOG)"; }
+  [ -d "$PRODUCT" ] || die "no product at $PRODUCT"
+
+  DIST="$REPO/dist"; mkdir -p "$DIST"
+  ZIP="$DIST/Downright-$VERSION.zip"
+  rm -f "$ZIP"
+  if [ -n "${DOWNRIGHT_NOTARY_PROFILE:-}" ] && [ -n "$SIGN_IDENTITY" ]; then
+    step "Notarizing (keychain profile: $DOWNRIGHT_NOTARY_PROFILE)"
+    ditto -c -k --keepParent "$PRODUCT" "$ZIP"
+    xcrun notarytool submit "$ZIP" --keychain-profile "$DOWNRIGHT_NOTARY_PROFILE" --wait || die "notarization failed"
+    xcrun stapler staple "$PRODUCT" || die "stapling failed"
+    rm -f "$ZIP"
+  fi
+  step "Packaging $ZIP"
+  ditto -c -k --keepParent "$PRODUCT" "$ZIP"
+  SHA=$(shasum -a 256 "$ZIP" | cut -d' ' -f1)
+
+  step "Committing and tagging v$VERSION"
+  git -C "$REPO" add App/project.yml
+  git -C "$REPO" commit -q -m "Release $VERSION" || true
+  PREV_TAG=$(git -C "$REPO" describe --tags --abbrev=0 2>/dev/null || true)
+  NOTES=$(mktemp -t downright-notes)
+  {
+    if [ -n "$NOTES_FILE" ]; then cat "$NOTES_FILE"; echo; fi
+    echo "## Install"
+    echo
+    echo "1. Download \`Downright-$VERSION.zip\` below and unzip it."
+    echo "2. Open **Downright.app** — it offers to move itself to Applications and to install the \`downright\` command."
+    if [ -z "$SIGN_IDENTITY" ]; then
+      echo
+      echo "> This build is not notarized. macOS will refuse to open it the first time: right-click the app and choose **Open**, or run \`xattr -dr com.apple.quarantine Downright.app\` after unzipping."
+    fi
+    echo
+    echo "SHA-256: \`$SHA\`"
+    echo
+    echo "## Changes"
+    echo
+    if [ -n "$PREV_TAG" ]; then git -C "$REPO" log --pretty='- %s' "$PREV_TAG..HEAD^"; else git -C "$REPO" log --pretty='- %s' HEAD^ | head -60; fi
+  } > "$NOTES"
+  git -C "$REPO" tag -a "v$VERSION" -m "Downright $VERSION"
+  git -C "$REPO" push origin HEAD "v$VERSION" || die "push failed"
+
+  step "Publishing GitHub release"
+  gh release create "v$VERSION" "$ZIP" --title "Downright $VERSION" --notes-file "$NOTES" --repo "$(git -C "$REPO" remote get-url origin | sed -E 's#(git@github.com:|https://github.com/)##; s#\.git$##')" || die "gh release failed"
+  step "Released Downright $VERSION"
+  exit 0
+fi
+
 RUN_TESTS=0; CLEAN=0; FORCE=0; OPEN_FILE=""
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -26,14 +114,11 @@ while [ $# -gt 0 ]; do
     --clean) CLEAN=1 ;;
     --force) FORCE=1 ;;
     --open)  shift; OPEN_FILE="${1:-}" ;;
-    -h|--help) sed -n '2,12p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,19p' "$0"; exit 0 ;;
     *) echo "unknown option: $1" >&2; exit 1 ;;
   esac
   shift
 done
-
-step() { printf '\033[1;34m==>\033[0m %s\n' "$*"; }
-die()  { printf '\033[1;31merror:\033[0m %s\n' "$*" >&2; exit 1; }
 
 # ── Prerequisites ─────────────────────────────────────────────────────────────
 command -v xcodebuild >/dev/null || die "xcodebuild not found — install Xcode and run: sudo xcode-select -s /Applications/Xcode.app"

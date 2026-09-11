@@ -1,6 +1,16 @@
 # Downright
 A simple yet powerful Markdown editor with live-style editing (inspired by Obsidian) for everyday use.  No need for heavy IDE that brings markdown as side effect and yet powerful enough to be used for real work.
-## Install from source
+## Install
+
+Download the latest `Downright-x.y.z.zip` from [Releases](https://github.com/jarcec/downright/releases),
+unzip, and open the app. On first launch it offers to move itself to Applications and to
+install the `downright` command. Downright is distributed directly, not through the App Store.
+
+Until releases are signed with a Developer ID and notarized, macOS will refuse the first
+launch: right-click the app and choose **Open**, or run
+`xattr -dr com.apple.quarantine Downright.app` after unzipping.
+
+## Build from source
 ```sh
 ./devtool                 # build, install to /Applications, link the `downright` command
 ./devtool --test          # run the test suite first
