@@ -34,7 +34,7 @@ targets:
         # a Developer ID certificate (DOWNRIGHT_SIGN_IDENTITY) and notarizes when configured.
         CODE_SIGN_STYLE: Manual
         CODE_SIGN_IDENTITY: "-"
-        DEVELOPMENT_TEAM: ""
+        DEVELOPMENT_TEAM: "88G5MVRSF4"
         PROVISIONING_PROFILE_SPECIFIER: ""
         CODE_SIGN_ENTITLEMENTS: Downright/Downright.entitlements
         ENABLE_HARDENED_RUNTIME: YES
