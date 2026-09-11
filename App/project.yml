@@ -14,6 +14,9 @@ targets:
     platform: macOS
     sources:
       - path: Downright
+      # The command-line shim ships inside the bundle so the app can install it.
+      - path: ../cli/downright
+        buildPhase: resources
     dependencies:
       - package: DownrightKit
         product: DownrightEditor
@@ -25,18 +28,17 @@ targets:
       base:
         PRODUCT_NAME: Downright
         PRODUCT_BUNDLE_IDENTIFIER: com.jarcec.Downright
-        MARKETING_VERSION: "0.0.1"
+        MARKETING_VERSION: "0.1.0"
         CURRENT_PROJECT_VERSION: "1"
-        # Ad-hoc signing for local builds: the Apple Development certificate on this
-        # machine expired 2024-06. App Sandbox is still enforced under an ad-hoc
-        # signature. Switch back to Automatic + DEVELOPMENT_TEAM for TestFlight/App Store.
+        # Ad-hoc signing by default. `./devtool release` overrides CODE_SIGN_IDENTITY with
+        # a Developer ID certificate (DOWNRIGHT_SIGN_IDENTITY) and notarizes when configured.
         CODE_SIGN_STYLE: Manual
         CODE_SIGN_IDENTITY: "-"
         DEVELOPMENT_TEAM: ""
         PROVISIONING_PROFILE_SPECIFIER: ""
         CODE_SIGN_ENTITLEMENTS: Downright/Downright.entitlements
         ENABLE_HARDENED_RUNTIME: YES
-        ENABLE_APP_SANDBOX: YES
+        ENABLE_APP_SANDBOX: NO
         GENERATE_INFOPLIST_FILE: NO
         INFOPLIST_FILE: Downright/Info.plist
         SWIFT_VERSION: "6.0"

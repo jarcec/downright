@@ -8,11 +8,16 @@
 
 set -eu
 
-# Prefer the installed copy: Launch Services may otherwise pick a build product
-# with the same bundle identifier.
+# Resolve the app: the bundle this script ships inside (Contents/Resources/downright),
+# else the installed copy, else by name (Launch Services may otherwise pick a build
+# product with the same bundle identifier).
 APP="Downright"
-[ -d /Applications/Downright.app ] && APP="/Applications/Downright.app"
-VERSION="0.0.1"
+SELF=$(readlink "$0" 2>/dev/null || echo "$0")
+case "$SELF" in /*) ;; *) SELF="$(cd "$(dirname "$0")" && pwd)/$(basename "$SELF")" ;; esac
+BUNDLE=$(cd "$(dirname "$SELF")/../.." 2>/dev/null && pwd)
+if [ -n "$BUNDLE" ] && [ -f "$BUNDLE/Contents/Info.plist" ]; then APP="$BUNDLE"
+elif [ -d /Applications/Downright.app ]; then APP="/Applications/Downright.app"; fi
+VERSION=$(defaults read "$APP/Contents/Info" CFBundleShortVersionString 2>/dev/null || echo "dev")
 
 usage() {
   cat <<USAGE

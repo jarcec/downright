@@ -70,7 +70,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        docLog.notice("launched \(Bundle.main.bundlePath, privacy: .public) sandboxed=\(ProcessInfo.processInfo.environment["APP_SANDBOX_CONTAINER_ID"] != nil)")
+        docLog.notice("launched \(Bundle.main.bundlePath, privacy: .public)")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { InstallPrompts.runOnLaunch() }
+    }
+
+    @objc func installCommandLineTool(_ sender: Any?) {
+        InstallPrompts.offerCommandLineTool(force: true)
     }
 
     /// No Untitled document when the app was launched to open files (`downright FILE`,
@@ -122,6 +127,7 @@ enum MainMenu {
         app.addItem(withTitle: "About \(appName)", action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)), keyEquivalent: "")
         app.addItem(.separator())
         app.addItem(withTitle: "Settings…", action: #selector(AppDelegate.showSettings(_:)), keyEquivalent: ",")
+        app.addItem(withTitle: "Install Command Line Tool…", action: #selector(AppDelegate.installCommandLineTool(_:)), keyEquivalent: "")
         app.addItem(.separator())
         app.addItem(withTitle: "Hide \(appName)", action: #selector(NSApplication.hide(_:)), keyEquivalent: "h")
         let hideOthers = app.addItem(withTitle: "Hide Others", action: #selector(NSApplication.hideOtherApplications(_:)), keyEquivalent: "h")
