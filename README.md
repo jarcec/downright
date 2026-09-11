@@ -15,7 +15,17 @@ launch: right-click the app and choose **Open**, or run
 ./devtool                 # build, install to /Applications, link the `downright` command
 ./devtool --test          # run the test suite first
 ```
-Requires Xcode; `xcodegen` is installed via Homebrew if missing. Local builds are ad-hoc signed and sandboxed.
+Requires Xcode; `xcodegen` is installed via Homebrew if missing. Local builds are ad-hoc signed and not sandboxed.
+
+## Release
+```sh
+./devtool release 0.2.0   # version bump, build, sign, notarize, zip, tag, push, GitHub release
+```
+Releases are signed with the Developer ID certificate and notarized using the `downright-notary`
+keychain profile (created once with `xcrun notarytool store-credentials`). Without the certificate
+the build falls back to ad-hoc signing and the release notes say so; `DOWNRIGHT_SIGN_IDENTITY` /
+`DOWNRIGHT_NOTARY_PROFILE` override the defaults.
+
 ## Use
 ```sh
 downright file.md            # open (creates the file if missing)
