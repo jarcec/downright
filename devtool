@@ -60,18 +60,19 @@ if [ "${1:-}" = "release" ]; then
     SIGN_IDENTITY=""
   fi
   DOWNRIGHT_NOTARY_PROFILE="${DOWNRIGHT_NOTARY_PROFILE-downright-notary}"
-  if [ -n "$SIGN_IDENTITY" ]; then
-    step "Building Release, signing with: $SIGN_IDENTITY"
-    SIGN_ARGS="CODE_SIGN_IDENTITY=$SIGN_IDENTITY OTHER_CODE_SIGN_FLAGS=--timestamp"
-  else
-    step "Building Release (ad-hoc signed — set DOWNRIGHT_SIGN_IDENTITY to a Developer ID for Gatekeeper-clean downloads)"
-    SIGN_ARGS=""
-  fi
   rm -rf "$BUILD_DIR"
   LOG=$(mktemp -t downright-release)
-  # shellcheck disable=SC2086
-  xcodebuild -project "$APP_DIR/Downright.xcodeproj" -scheme Downright -configuration Release \
-    -derivedDataPath "$BUILD_DIR" $SIGN_ARGS build >"$LOG" 2>&1 || { grep -E "error:" "$LOG" | head -20 >&2; die "build failed (log: $LOG)"; }
+  if [ -n "$SIGN_IDENTITY" ]; then
+    step "Building Release, signing with: $SIGN_IDENTITY"
+    xcodebuild -project "$APP_DIR/Downright.xcodeproj" -scheme Downright -configuration Release \
+      -derivedDataPath "$BUILD_DIR" "CODE_SIGN_IDENTITY=$SIGN_IDENTITY" "OTHER_CODE_SIGN_FLAGS=--timestamp" build >"$LOG" 2>&1 \
+      || { grep -E "error:" "$LOG" | head -20 >&2; die "build failed (log: $LOG)"; }
+  else
+    step "Building Release (ad-hoc signed — install the Developer ID certificate for Gatekeeper-clean downloads)"
+    xcodebuild -project "$APP_DIR/Downright.xcodeproj" -scheme Downright -configuration Release \
+      -derivedDataPath "$BUILD_DIR" build >"$LOG" 2>&1 \
+      || { grep -E "error:" "$LOG" | head -20 >&2; die "build failed (log: $LOG)"; }
+  fi
   [ -d "$PRODUCT" ] || die "no product at $PRODUCT"
 
   DIST="$REPO/dist"; mkdir -p "$DIST"
