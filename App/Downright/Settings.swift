@@ -76,20 +76,19 @@ final class Settings: ObservableObject {
 
     /// Make Downright the default app for Markdown files (the UTIs behind .md/.markdown).
     static func makeDefaultForMarkdown(completion: @escaping @MainActor (Error?) -> Void) {
-        let types = ["md", "markdown", "mdown", "mkd"].compactMap { UTType(filenameExtension: $0) }
-        var unique: [UTType] = []
-        for t in types where !unique.contains(t) { unique.append(t) }
-        var remaining = unique.count
-        var firstError: Error?
-        guard remaining > 0 else { completion(nil); return }
-        for type in unique {
-            NSWorkspace.shared.setDefaultApplication(at: Bundle.main.bundleURL, toOpen: type) { error in
-                Task { @MainActor in
-                    if firstError == nil { firstError = error }
-                    remaining -= 1
-                    if remaining == 0 { completion(firstError) }
+        var types: [UTType] = []
+        for ext in ["md", "markdown", "mdown", "mkd"] {
+            if let t = UTType(filenameExtension: ext), !types.contains(t) { types.append(t) }
+        }
+        Task { @MainActor in
+            var firstError: Error? = nil
+            for type in types {
+                let error: Error? = await withCheckedContinuation { cont in
+                    NSWorkspace.shared.setDefaultApplication(at: Bundle.main.bundleURL, toOpen: type) { cont.resume(returning: $0) }
                 }
+                if firstError == nil { firstError = error }
             }
+            completion(firstError)
         }
     }
 
