@@ -65,7 +65,8 @@ if [ "${1:-}" = "release" ]; then
   if [ -n "$SIGN_IDENTITY" ]; then
     step "Building Release, signing with: $SIGN_IDENTITY"
     xcodebuild -project "$APP_DIR/Downright.xcodeproj" -scheme Downright -configuration Release \
-      -derivedDataPath "$BUILD_DIR" "CODE_SIGN_IDENTITY=$SIGN_IDENTITY" "OTHER_CODE_SIGN_FLAGS=--timestamp" build >"$LOG" 2>&1 \
+      -derivedDataPath "$BUILD_DIR" "CODE_SIGN_IDENTITY=$SIGN_IDENTITY" "OTHER_CODE_SIGN_FLAGS=--timestamp" \
+      CODE_SIGN_INJECT_BASE_ENTITLEMENTS=NO build >"$LOG" 2>&1 \
       || { grep -E "error:" "$LOG" | head -20 >&2; die "build failed (log: $LOG)"; }
   else
     step "Building Release (ad-hoc signed — install the Developer ID certificate for Gatekeeper-clean downloads)"
@@ -81,7 +82,15 @@ if [ "${1:-}" = "release" ]; then
   if [ -n "${DOWNRIGHT_NOTARY_PROFILE:-}" ] && [ -n "$SIGN_IDENTITY" ]; then
     step "Notarizing (keychain profile: $DOWNRIGHT_NOTARY_PROFILE)"
     ditto -c -k --keepParent "$PRODUCT" "$ZIP"
-    xcrun notarytool submit "$ZIP" --keychain-profile "$DOWNRIGHT_NOTARY_PROFILE" --wait || die "notarization failed"
+    NOTARY_OUT=$(mktemp -t downright-notary)
+    xcrun notarytool submit "$ZIP" --keychain-profile "$DOWNRIGHT_NOTARY_PROFILE" --wait --output-format json >"$NOTARY_OUT" 2>&1 || die "notarization submission failed: $(cat "$NOTARY_OUT")"
+    NOTARY_STATUS=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("status",""))' "$NOTARY_OUT" 2>/dev/null || echo "")
+    NOTARY_ID=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("id",""))' "$NOTARY_OUT" 2>/dev/null || echo "")
+    if [ "$NOTARY_STATUS" != "Accepted" ]; then
+      xcrun notarytool log "$NOTARY_ID" --keychain-profile "$DOWNRIGHT_NOTARY_PROFILE" 2>/dev/null | head -40 >&2
+      die "notarization status: ${NOTARY_STATUS:-unknown} (submission $NOTARY_ID)"
+    fi
+    step "Notarized (submission $NOTARY_ID); stapling"
     xcrun stapler staple "$PRODUCT" || die "stapling failed"
     rm -f "$ZIP"
   fi
