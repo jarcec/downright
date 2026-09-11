@@ -9,9 +9,10 @@
 #   ./devtool --open FILE  open FILE after installing
 #
 #   ./devtool release X.Y.Z [--notes FILE]
-#       set the version, build Release, sign (Developer ID + notarization when
-#       DOWNRIGHT_SIGN_IDENTITY / DOWNRIGHT_NOTARY_PROFILE are set, ad-hoc otherwise),
-#       zip, tag vX.Y.Z, push, and publish a GitHub release with the zip attached.
+#       set the version, build Release, sign with the Developer ID certificate and
+#       notarize (defaults in the script; DOWNRIGHT_SIGN_IDENTITY=- forces ad-hoc, and a
+#       missing certificate falls back to ad-hoc with a note), zip, tag vX.Y.Z, push,
+#       and publish a GitHub release with the zip attached.
 #
 # Requirements: Xcode command-line tools; xcodegen (installed via Homebrew if missing);
 # `gh` authenticated for releases.
@@ -47,7 +48,18 @@ if [ "${1:-}" = "release" ]; then
   sed -i '' -E "s/CURRENT_PROJECT_VERSION: \"[0-9]+\"/CURRENT_PROJECT_VERSION: \"$BUILD_NUMBER\"/" "$APP_DIR/project.yml"
   (cd "$APP_DIR" && xcodegen generate >/dev/null)
 
-  SIGN_IDENTITY="${DOWNRIGHT_SIGN_IDENTITY:-}"
+  # Signing defaults. Team ID and certificate name are public (they are embedded in every
+  # signed binary); the notary profile is only a keychain label — the secret stays in the
+  # keychain. Override with DOWNRIGHT_SIGN_IDENTITY / DOWNRIGHT_NOTARY_PROFILE, or set
+  # DOWNRIGHT_SIGN_IDENTITY=- to force an ad-hoc build.
+  DEFAULT_SIGN_IDENTITY="Developer ID Application: Jaroslav Cecho (88G5MVRSF4)"
+  SIGN_IDENTITY="${DOWNRIGHT_SIGN_IDENTITY-$DEFAULT_SIGN_IDENTITY}"
+  [ "$SIGN_IDENTITY" = "-" ] && SIGN_IDENTITY=""
+  if [ -n "$SIGN_IDENTITY" ] && ! security find-identity -v -p codesigning 2>/dev/null | grep -qF "$SIGN_IDENTITY"; then
+    echo "note: certificate \"$SIGN_IDENTITY\" is not in the keychain; building ad-hoc" >&2
+    SIGN_IDENTITY=""
+  fi
+  DOWNRIGHT_NOTARY_PROFILE="${DOWNRIGHT_NOTARY_PROFILE-downright-notary}"
   if [ -n "$SIGN_IDENTITY" ]; then
     step "Building Release, signing with: $SIGN_IDENTITY"
     SIGN_ARGS="CODE_SIGN_IDENTITY=$SIGN_IDENTITY OTHER_CODE_SIGN_FLAGS=--timestamp"
