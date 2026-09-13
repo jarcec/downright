@@ -10,6 +10,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         // otherwise open the files before application(_:open:) is consulted.
         NSAppleEventManager.shared().setEventHandler(self, andSelector: #selector(handleOpenDocuments(_:withReply:)),
                                                      forEventClass: AEEventClass(kCoreEventClass), andEventID: AEEventID(kAEOpenDocuments))
+        // The CLI sends one downright://open?file=…&file=…[&tabs=1] URL per invocation: a
+        // single event that Launch Services cannot split, carrying the window/tab intent.
+        NSAppleEventManager.shared().setEventHandler(self, andSelector: #selector(handleOpenURL(_:withReply:)),
+                                                     forEventClass: AEEventClass(kInternetEventClass), andEventID: AEEventID(kAEGetURL))
         NotificationCenter.default.addObserver(self, selector: #selector(defaultsChanged(_:)), name: Settings.didChange, object: nil)
         NSApp.mainMenu = MainMenu.build()
         DebugLog.write("willFinishLaunching: lineNumbers=\(Settings.showLineNumbers) outline=\(Settings.showOutline)")
@@ -95,12 +99,49 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         }
         DebugLog.write("open documents event: \(urls.map(\.lastPathComponent))")
         guard !urls.isEmpty else { return }
+        pendingRequests.append(urls)
+        drainRequests()
+    }
+
+    /// CLI request: `downright://open?file=<percent-encoded path>&file=…&tabs=1`.
+    /// With `tabs=1` the files become tabs of one new window; otherwise each file
+    /// gets its own window.
+    @objc private func handleOpenURL(_ event: NSAppleEventDescriptor, withReply reply: NSAppleEventDescriptor) {
+        guard let string = event.paramDescriptor(forKeyword: AEKeyword(keyDirectObject))?.stringValue,
+              let components = URLComponents(string: string), components.host == "open" else {
+            DebugLog.write("open url event: unrecognized \(event.paramDescriptor(forKeyword: AEKeyword(keyDirectObject))?.stringValue ?? "")")
+            return
+        }
+        let items = components.queryItems ?? []
+        let files = items.filter { $0.name == "file" }.compactMap(\.value).filter { !$0.isEmpty }.map { URL(fileURLWithPath: $0) }
+        let tabs = items.first { $0.name == "tabs" }?.value == "1"
+        DebugLog.write("open url event: tabs=\(tabs) \(files.map(\.lastPathComponent))")
+        guard !files.isEmpty else { return }
+        pendingRequests.append(contentsOf: tabs ? [files] : files.map { [$0] })
+        drainRequests()
+    }
+
+    /// Open requests are served one at a time: each is a batch (one window; several
+    /// files → tabs), and the next starts only after the previous has finished opening,
+    /// so a request arriving mid-batch cannot reset the batch host.
+    private var pendingRequests: [[URL]] = []
+    private var draining = false
+
+    private func drainRequests() {
+        guard !draining, !pendingRequests.isEmpty else { return }
+        draining = true
+        let request = pendingRequests.removeFirst()
         DocumentWindowController.beginOpenBatch()
-        openSequentially(urls[...])
+        openSequentially(request[...])
     }
 
     private func openSequentially(_ urls: ArraySlice<URL>) {
-        guard let url = urls.first else { DocumentWindowController.endOpenBatch(); return }
+        guard let url = urls.first else {
+            DocumentWindowController.endOpenBatch()
+            draining = false
+            drainRequests()
+            return
+        }
         NSDocumentController.shared.openDocument(withContentsOf: url, display: true) { [weak self] _, _, error in
             if let error { docLog.error("open failed for \(url.path, privacy: .public): \(error.localizedDescription, privacy: .public)") }
             self?.openSequentially(urls.dropFirst())
@@ -108,9 +149,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     }
 
     func applicationShouldOpenUntitledFile(_ sender: NSApplication) -> Bool {
-        if let event = NSAppleEventManager.shared().currentAppleEvent,
-           event.eventClass == AEEventClass(kCoreEventClass), event.eventID == AEEventID(kAEOpenDocuments) {
-            return false
+        if let event = NSAppleEventManager.shared().currentAppleEvent {
+            if event.eventClass == AEEventClass(kCoreEventClass), event.eventID == AEEventID(kAEOpenDocuments) { return false }
+            if event.eventClass == AEEventClass(kInternetEventClass), event.eventID == AEEventID(kAEGetURL) { return false }
         }
         return true
     }

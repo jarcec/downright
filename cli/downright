@@ -37,7 +37,7 @@ if [ $# -eq 0 ]; then
 fi
 
 TABS=0
-files=""
+query=""
 for arg in "$@"; do
   case "$arg" in
     -h|--help)    usage; exit 0 ;;
@@ -57,17 +57,13 @@ for arg in "$@"; do
     fi
     : > "$path"
   fi
-  files="$files
-$path"
+  # Percent-encode every byte: safe for any path, trivially decoded by the app.
+  enc=$(printf '%s' "$path" | od -An -tx1 -v | tr -d ' \n' | sed 's/../%&/g')
+  query="$query&file=$enc"
 done
 
-if [ "$TABS" = 1 ]; then
-  # One open request → one window with tabs.
-  printf '%s\n' "$files" | sed '/^$/d' | tr '\n' '\0' | xargs -0 open -a "$APP" || exit 2
-else
-  # One request per file → one window per file.
-  printf '%s\n' "$files" | sed '/^$/d' | while IFS= read -r f; do
-    open -a "$APP" "$f" || exit 2
-  done
-fi
+# One request per invocation, as a single URL event: Launch Services may split a
+# multi-file "open" into several document events (notably while the app is
+# launching), which would break tab grouping. The app decides windows vs tabs.
+open -a "$APP" "downright://open?tabs=$TABS$query" || exit 2
 exit 0

@@ -89,7 +89,9 @@ final class DocumentWindowController: NSWindowController, NSWindowDelegate {
             DispatchQueue.main.async { [weak window] in window?.tabbingMode = .preferred }
             if Self.inOpenBatch { Self.batchHost = window }
         } else if Self.inOpenBatch, let host = Self.batchHost {
+            // Each mate goes after the previous one, keeping the request's order.
             host.addTabbedWindow(window, ordered: .above)
+            Self.batchHost = window
         } else if let host = NSApp.windows.last(where: { $0 !== window && $0.tabbingIdentifier == window.tabbingIdentifier && $0.windowController is DocumentWindowController }) {
             host.addTabbedWindow(window, ordered: .above)
             // A real file arriving next to an empty, untouched Untitled (the one the launch
