@@ -99,9 +99,9 @@ public final class DecorationEngine {
 
         let path = document.path(containing: pr.location)
         guard !path.isEmpty else {
-            // Blank line hugging a heading: draw it compact (unless the caret is on it), so the
-            // customary empty lines around headings don't read as double spacing.
-            if isBlank(cr), isHeadingLine(li - 1) || isHeadingLine(li + 1) {
+            // Blank line hugging a heading or a table: draw it compact (unless the caret is on
+            // it), so the customary empty lines around them don't read as double spacing.
+            if isBlank(cr), hugsCompactNeighbor(li - 1) || hugsCompactNeighbor(li + 1) {
                 d.concealedStyles.append(StyleRun(pr, .font(.systemFont(ofSize: theme.bodySize * 0.4))))
             }
             return d
@@ -165,11 +165,12 @@ public final class DecorationEngine {
         return true
     }
 
-    /// Does `line` belong to a heading block (ATX line, or setext text/underline)?
-    private func isHeadingLine(_ line: Int) -> Bool {
+    /// Does `line` belong to a block whose surrounding blank lines are drawn compact:
+    /// a heading (ATX line, or setext text/underline) or a table?
+    private func hugsCompactNeighbor(_ line: Int) -> Bool {
         guard line >= 0, line < lines.lineCount else { return false }
         guard let b = document.path(containing: lines.lineStarts[line]).last else { return false }
-        switch b.kind { case .heading, .setextHeading: return true; default: return false }
+        switch b.kind { case .heading, .setextHeading, .table: return true; default: return false }
     }
 
     private func leafStyles(_ leaf: Block, line li: Int, pr: NSRange, cr: NSRange, into d: inout ParagraphDecoration) {

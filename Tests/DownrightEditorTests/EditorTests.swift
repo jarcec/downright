@@ -214,4 +214,20 @@ final class CompactBlankLineTests: XCTestCase {
         h = heights()
         XCTAssertEqual(h[1]!, h[5]!, accuracy: 0.5)
     }
+
+    func testBlankLinesAroundTablesAreCompact() {
+        let s = NSTextStorage(string: "para\n\n| a | b |\n|---|---|\n| 1 | 2 |\n\nbody\n\nmore\n")
+        //                              0 para,1 blank(before T),2-4 table,5 blank(after T),6 body,7 blank(plain),8 more
+        let c = EditorController(textStorage: s)
+        c.layoutManager.textContainer?.size = CGSize(width: 600, height: 1e7)
+        c.textView.setSelectedRange(NSRange(location: 0, length: 0))
+        var h: [Int: CGFloat] = [:]
+        c.layoutManager.enumerateTextLayoutFragments(from: c.layoutManager.documentRange.location, options: [.ensuresLayout]) { f in
+            let loc = c.contentStorage.offset(from: c.contentStorage.documentRange.location, to: f.textElement!.elementRange!.location)
+            h[c.lines.line(containing: loc)] = f.layoutFragmentFrame.height; return true
+        }
+        XCTAssertLessThan(h[1]!, h[7]! * 0.6, "blank before table is compact: \(h)")
+        XCTAssertLessThan(h[5]!, h[7]! * 0.6, "blank after table is compact")
+        XCTAssertGreaterThan(h[7]!, 15, "ordinary blank line keeps full height")
+    }
 }
