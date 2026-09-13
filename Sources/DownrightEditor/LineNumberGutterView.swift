@@ -17,6 +17,10 @@ public final class LineNumberGutterView: NSView {
         super.init(frame: .zero)
         translatesAutoresizingMaskIntoConstraints = false
         wantsLayer = true
+        // macOS 14 stopped clipping view drawing to bounds by default; without this the
+        // last visible number spills over the status bar below (the scroll view clips
+        // its text, so only the gutter showed through).
+        clipsToBounds = true
         digitWidth = ("0" as NSString).size(withAttributes: [.font: font]).width
         let w = widthAnchor.constraint(equalToConstant: 40)
         w.isActive = true
@@ -89,20 +93,30 @@ public final class LineNumberGutterView: NSView {
             var attrs = line == caretLine ? current : normal
             if frame.height < 14 { attrs[.font] = NSFont.monospacedDigitSystemFont(ofSize: 7.5, weight: .regular) }   // compact blank lines
             let size = label.size(withAttributes: attrs)
+            // Vertical anchor: the centre of the first text line's cap height, so a number
+            // sits level with body text, a tall heading and a compact blank line alike.
+            // Lines whose text is concealed (rules) have no usable glyph line: use the
+            // fragment's middle.
+            let top = self.convert(NSPoint(x: 0, y: yInTextView), from: tv).y
+            var anchor = top + frame.height / 2
+            if let tl = f.textLineFragments.first, tl.typographicBounds.height >= size.height {
+                let baseline = top + tl.typographicBounds.minY + tl.glyphOrigin.y
+                var capHeight: CGFloat = 0
+                tl.attributedString.enumerateAttribute(.font, in: NSRange(location: 0, length: tl.attributedString.length)) { v, _, _ in
+                    if let fnt = v as? NSFont { capHeight = max(capHeight, fnt.capHeight) }
+                }
+                anchor = baseline - capHeight / 2
+            }
             // Fold chevron for headings / frontmatter: ▸ when folded, ▾ otherwise
             if c.foldableBlock(atLine: line) != nil {
                 let folded = c.isFolded(line: line)
                 let chev = (folded ? "▸" : "▾") as NSString
                 let cattrs: [NSAttributedString.Key: Any] = [.font: NSFont.systemFont(ofSize: 9), .foregroundColor: folded ? NSColor.secondaryLabelColor : NSColor.quaternaryLabelColor]
                 let cs = chev.size(withAttributes: cattrs)
-                let cy = self.convert(NSPoint(x: 0, y: yInTextView), from: tv).y + ((f.textLineFragments.first?.typographicBounds.height ?? frame.height) - cs.height) / 2
-                chev.draw(at: NSPoint(x: 3, y: cy), withAttributes: cattrs)
+                chev.draw(at: NSPoint(x: 3, y: anchor - cs.height / 2), withAttributes: cattrs)
             }
-            // Centre on the first text line; for lines whose text is concealed (rules) the
-            // line is ~0pt tall, so centre on the whole fragment instead.
-            var lineHeight = f.textLineFragments.first?.typographicBounds.height ?? frame.height
-            if lineHeight < size.height { lineHeight = frame.height }
-            let y = self.convert(NSPoint(x: 0, y: yInTextView), from: tv).y + (lineHeight - size.height) / 2
+            let numFont = attrs[.font] as! NSFont
+            let y = anchor - numFont.ascender + numFont.capHeight / 2 - (size.height - (numFont.ascender - numFont.descender)) / 2
             label.draw(at: NSPoint(x: width - size.width - 8, y: y), withAttributes: attrs)
             return true
         }
