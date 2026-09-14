@@ -10,8 +10,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         // otherwise open the files before application(_:open:) is consulted.
         NSAppleEventManager.shared().setEventHandler(self, andSelector: #selector(handleOpenDocuments(_:withReply:)),
                                                      forEventClass: AEEventClass(kCoreEventClass), andEventID: AEEventID(kAEOpenDocuments))
-        // The CLI sends one downright://open?file=…&file=…[&tabs=1] URL per invocation: a
-        // single event that Launch Services cannot split, carrying the window/tab intent.
+        // The CLI sends one downright://open?file=…&file=… URL per invocation: a single
+        // event that Launch Services cannot split, so one invocation is one window.
         NSAppleEventManager.shared().setEventHandler(self, andSelector: #selector(handleOpenURL(_:withReply:)),
                                                      forEventClass: AEEventClass(kInternetEventClass), andEventID: AEEventID(kAEGetURL))
         NotificationCenter.default.addObserver(self, selector: #selector(defaultsChanged(_:)), name: Settings.didChange, object: nil)
@@ -103,9 +103,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         drainRequests()
     }
 
-    /// CLI request: `downright://open?file=<percent-encoded path>&file=…&tabs=1`.
-    /// With `tabs=1` the files become tabs of one new window; otherwise each file
-    /// gets its own window.
+    /// CLI request: `downright://open?file=<percent-encoded path>&file=…`. The files
+    /// become tabs of one new window.
     @objc private func handleOpenURL(_ event: NSAppleEventDescriptor, withReply reply: NSAppleEventDescriptor) {
         guard let string = event.paramDescriptor(forKeyword: AEKeyword(keyDirectObject))?.stringValue,
               let components = URLComponents(string: string), components.host == "open" else {
@@ -114,10 +113,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         }
         let items = components.queryItems ?? []
         let files = items.filter { $0.name == "file" }.compactMap(\.value).filter { !$0.isEmpty }.map { URL(fileURLWithPath: $0) }
-        let tabs = items.first { $0.name == "tabs" }?.value == "1"
-        DebugLog.write("open url event: tabs=\(tabs) \(files.map(\.lastPathComponent))")
+        DebugLog.write("open url event: \(files.map(\.lastPathComponent))")
         guard !files.isEmpty else { return }
-        pendingRequests.append(contentsOf: tabs ? [files] : files.map { [$0] })
+        pendingRequests.append(files)
         drainRequests()
     }
 

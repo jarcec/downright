@@ -29,7 +29,7 @@ the build falls back to ad-hoc signing and the release notes say so; `DOWNRIGHT_
 ## Use
 ```sh
 downright file.md            # open (creates the file if missing)
-downright -p *.md            # several files open as tabs
+downright *.md               # several files open as tabs of one window
 downright -n                 # activate / new untitled document
 ```
 

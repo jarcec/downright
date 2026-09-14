@@ -6,7 +6,7 @@ final class DocumentWindowController: NSWindowController, NSWindowDelegate {
     /// document tab group. ⌘T and Open… tab into the current window.
     static var nextWindowOpensStandalone = false
 
-    /// Files delivered by Launch Services in one request (`downright -p a b`, a Finder
+    /// Files delivered by Launch Services in one request (`downright a b`, a Finder
     /// multi-select) open as tabs in one *new* window: the first becomes the batch host,
     /// the rest join it. Separate requests get separate windows.
     private static var inOpenBatch = false
@@ -78,7 +78,7 @@ final class DocumentWindowController: NSWindowController, NSWindowDelegate {
 
         // Join the existing document tab group. Automatic tabbing only attaches to the
         // key window, which does not exist yet when several files arrive in one open
-        // request (`downright -p a.md b.md`), so do it explicitly.
+        // request (`downright a.md b.md`), so do it explicitly.
         DebugLog.write("window for \(document.fileURL?.lastPathComponent ?? "untitled"): standalone=\(Self.nextWindowOpensStandalone) inBatch=\(Self.inOpenBatch) host=\(Self.batchHost != nil) visibleDocWindows=\(NSApp.windows.filter { $0.isVisible && $0.windowController is DocumentWindowController }.count)")
         if Self.nextWindowOpensStandalone {
             Self.nextWindowOpensStandalone = false

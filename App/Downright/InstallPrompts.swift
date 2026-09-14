@@ -76,7 +76,7 @@ enum InstallPrompts {
         if !force && UserDefaults.standard.bool(forKey: declinedCLIKey) { return }
         let alert = NSAlert()
         alert.messageText = "Install the downright command?"
-        alert.informativeText = "Adds a `downright` command so you can open files from the terminal:\n\n    downright notes.md\n    downright -p *.md\n\nIt is a small script that hands files to this app."
+        alert.informativeText = "Adds a `downright` command so you can open files from the terminal:\n\n    downright notes.md\n    downright *.md\n\nIt is a small script that hands files to this app."
         alert.addButton(withTitle: "Install")
         alert.addButton(withTitle: force ? "Cancel" : "Later")
         alert.alertStyle = .informational

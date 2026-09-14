@@ -21,11 +21,10 @@ VERSION=$(defaults read "$APP/Contents/Info" CFBundleShortVersionString 2>/dev/n
 
 usage() {
   cat <<USAGE
-usage: downright [-p] [-n] [FILE...]
+usage: downright [-n] [FILE...]
 
-  FILE        open FILE (created empty if it does not exist). Each file opens
-              in its own new window.
-  -p          open the given files as tabs of one new window, e.g. downright -p *.md
+  FILE...     open the files (created empty if they do not exist) as tabs of
+              one new window, e.g. downright *.md
   -n, --new   activate the app (creates an untitled document if none is open)
   -v          print version
   -h          this help
@@ -36,14 +35,12 @@ if [ $# -eq 0 ]; then
   usage; exit 1
 fi
 
-TABS=0
 query=""
 for arg in "$@"; do
   case "$arg" in
     -h|--help)    usage; exit 0 ;;
     -v|--version) echo "downright $VERSION"; exit 0 ;;
     -n|--new)     open -a "$APP" || exit 2; exit 0 ;;
-    -p)           TABS=1; continue ;;
     -*)           echo "downright: unknown option: $arg" >&2; usage; exit 1 ;;
   esac
   case "$arg" in
@@ -64,6 +61,6 @@ done
 
 # One request per invocation, as a single URL event: Launch Services may split a
 # multi-file "open" into several document events (notably while the app is
-# launching), which would break tab grouping. The app decides windows vs tabs.
-open -a "$APP" "downright://open?tabs=$TABS$query" || exit 2
+# launching), which would break tab grouping. One invocation → one window.
+open -a "$APP" "downright://open?${query#&}" || exit 2
 exit 0
