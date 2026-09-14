@@ -714,6 +714,8 @@ public final class EditorController: NSObject, NSTextViewDelegate, @preconcurren
         let revealed = storageDelegate.isRevealed(NSRange(location: offset, length: length))
         if mode == .raw { return fragment }
         fragment.quoteDepth = d.quoteDepth
+        fragment.quoteTop = d.quoteTop
+        fragment.quoteBottom = d.quoteBottom
         fragment.appearance = Self.appearance(for: d.role, revealed: revealed, at: offset, length: length)
         return fragment
     }

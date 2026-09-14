@@ -52,7 +52,11 @@ public struct Theme: @unchecked Sendable, Equatable {
             app.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua ? NSColor(red: 0.6, green: 0.7, blue: 1, alpha: 0.07) : NSColor(red: 0.2, green: 0.4, blue: 0.9, alpha: 0.05)
         }
     }
-    public var quoteBar: NSColor { .separatorColor }
+    public var quoteBar: NSColor {
+        NSColor(name: nil) { app in
+            app.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua ? NSColor(white: 1, alpha: 0.35) : NSColor(white: 0, alpha: 0.28)
+        }
+    }
 
     /// Code highlighting palette (system colours, so they adapt to light/dark).
     public func color(for token: CodeToken) -> NSColor {

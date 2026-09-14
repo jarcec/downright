@@ -62,6 +62,10 @@ public struct ParagraphDecoration {
     /// Applied only when concealed, after substitutions (e.g. sizing a bullet glyph).
     public var concealedStyles: [StyleRun] = []
     public var quoteDepth = 0
+    /// First / last line of the outermost block quote this line belongs to (rounded
+    /// corners of the quote background).
+    public var quoteTop = false
+    public var quoteBottom = false
     public var firstLineHeadIndent: CGFloat = 0
     public var headIndent: CGFloat = 0
     public var spacingBefore: CGFloat = 0

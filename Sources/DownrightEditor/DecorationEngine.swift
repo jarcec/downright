@@ -114,6 +114,10 @@ public final class DecorationEngine {
             switch block.kind {
             case .blockQuote:
                 quoteDepth += 1
+                if quoteDepth == 1 {
+                    d.quoteTop = li == lines.line(containing: block.range.location)
+                    d.quoteBottom = li == lines.line(containing: max(block.range.location, block.range.end - 1))
+                }
                 for m in block.markerRanges where cr.contains(m.location) {
                     d.conceal.append(m)
                     d.markerStyles.append(StyleRun(m, .foreground(theme.markerColor)))

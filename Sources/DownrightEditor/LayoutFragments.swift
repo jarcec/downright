@@ -14,6 +14,8 @@ final class DecoratedLayoutFragment: NSTextLayoutFragment {
 
     var appearance: Appearance = .plain
     var quoteDepth = 0
+    var quoteTop = false
+    var quoteBottom = false
     var theme = Theme()
 
     override var layoutFragmentFrame: CGRect {
@@ -97,10 +99,17 @@ final class DecoratedLayoutFragment: NSTextLayoutFragment {
             _ = bottom
         }
         if quoteDepth > 0 {
+            // Tinted, rounded background like a code block, with a bar per nesting level.
+            // The whole quote is clipped to one rounded shape so the outer bar's corners
+            // round with the background.
+            let rect = CGRect(x: lineRect.minX - 6, y: lineRect.minY, width: width + 12, height: height)
+            roundedClip(rect, top: quoteTop, bottom: quoteBottom, radius: 6, in: context)
+            context.setFillColor(theme.codeBlockBackground.cgColor)
+            context.fill(rect)
             context.setFillColor(theme.quoteBar.cgColor)
             for i in 0..<quoteDepth {
-                let x = lineRect.minX + CGFloat(i) * theme.quoteIndent + 3
-                context.fill(CGRect(x: x, y: lineRect.minY, width: 3, height: height))
+                let x = i == 0 ? rect.minX : lineRect.minX + CGFloat(i) * theme.quoteIndent + 3
+                context.fill(CGRect(x: x, y: lineRect.minY, width: i == 0 ? 4 : 3, height: height))
             }
         }
         context.restoreGState()
@@ -114,14 +123,21 @@ final class DecoratedLayoutFragment: NSTextLayoutFragment {
         if !top && !bottom {
             ctx.fill(rect); return
         }
+        ctx.saveGState()
+        roundedClip(rect, top: top, bottom: bottom, radius: radius, in: ctx)
+        ctx.fill(rect)
+        ctx.restoreGState()
+    }
+
+    /// Clip to `rect` with the top and/or bottom corners rounded (a middle slice of a
+    /// multi-line block rounds neither).
+    private func roundedClip(_ rect: CGRect, top: Bool, bottom: Bool, radius: CGFloat, in ctx: CGContext) {
+        ctx.clip(to: rect)
+        guard top || bottom else { return }
         var r = rect
         if !top { r.origin.y -= radius; r.size.height += radius }
         if !bottom { r.size.height += radius }
-        ctx.saveGState()
-        ctx.clip(to: rect)
-        let path = CGPath(roundedRect: r, cornerWidth: radius, cornerHeight: radius, transform: nil)
-        ctx.addPath(path)
-        ctx.fillPath()
-        ctx.restoreGState()
+        ctx.addPath(CGPath(roundedRect: r, cornerWidth: radius, cornerHeight: radius, transform: nil))
+        ctx.clip()
     }
 }
