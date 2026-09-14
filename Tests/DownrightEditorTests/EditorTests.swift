@@ -230,4 +230,20 @@ final class CompactBlankLineTests: XCTestCase {
         XCTAssertLessThan(h[5]!, h[7]! * 0.6, "blank after table is compact")
         XCTAssertGreaterThan(h[7]!, 15, "ordinary blank line keeps full height")
     }
+
+    func testBlankLinesAroundQuotesAreCompact() {
+        let s = NSTextStorage(string: "para\n\n> quoted\n> more\n\nbody\n\nmore\n")
+        //                              0 para,1 blank(before Q),2-3 quote,4 blank(after Q),5 body,6 blank(plain),7 more
+        let c = EditorController(textStorage: s)
+        c.layoutManager.textContainer?.size = CGSize(width: 600, height: 1e7)
+        c.textView.setSelectedRange(NSRange(location: 0, length: 0))
+        var h: [Int: CGFloat] = [:]
+        c.layoutManager.enumerateTextLayoutFragments(from: c.layoutManager.documentRange.location, options: [.ensuresLayout]) { f in
+            let loc = c.contentStorage.offset(from: c.contentStorage.documentRange.location, to: f.textElement!.elementRange!.location)
+            h[c.lines.line(containing: loc)] = f.layoutFragmentFrame.height; return true
+        }
+        XCTAssertLessThan(h[1]!, h[6]! * 0.6, "blank before quote is compact: \(h)")
+        XCTAssertLessThan(h[4]!, h[6]! * 0.6, "blank after quote is compact")
+        XCTAssertGreaterThan(h[6]!, 15, "ordinary blank line keeps full height")
+    }
 }
