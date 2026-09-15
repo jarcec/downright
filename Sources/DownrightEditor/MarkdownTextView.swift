@@ -53,6 +53,15 @@ public final class MarkdownTextView: NSTextView {
         updateBlockCursor()
     }
 
+    /// TextKit 2 relocates the viewport here and rebuilds the layout lazily at the next
+    /// draw. NSTextFinder scrolls to the first match and asks for the match rectangles
+    /// straight after; with no layout it gets none and draws no highlights until the
+    /// next scroll makes it ask again. Rebuild the viewport layout right away.
+    public override func scrollRangeToVisible(_ range: NSRange) {
+        super.scrollRangeToVisible(range)
+        textLayoutManager?.textViewportLayoutController.layoutViewport()
+    }
+
     public override func setSelectedRanges(_ ranges: [NSValue], affinity: NSSelectionAffinity, stillSelecting stillSelectingFlag: Bool) {
         super.setSelectedRanges(ranges, affinity: affinity, stillSelecting: stillSelectingFlag)
         updateBlockCursor()

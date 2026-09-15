@@ -255,7 +255,7 @@ public final class EditorController: NSObject, NSTextViewDelegate, @preconcurren
         contentStorage.addTextLayoutManager(layoutManager)
 
         textView = MarkdownTextView(frame: NSRect(x: 0, y: 0, width: 800, height: 600), textContainer: textContainer)
-        scrollView = NSScrollView(frame: textView.frame)
+        scrollView = EditorScrollView(frame: textView.frame)
         super.init()
 
         storageDelegate.engine = engine
@@ -821,3 +821,13 @@ public final class EditorController: NSObject, NSTextViewDelegate, @preconcurren
     }
 }
 
+
+/// Scroll view that reports retiling — the only reliable moment to learn that the find
+/// bar appeared or disappeared and moved the clip view.
+public final class EditorScrollView: NSScrollView {
+    public var onTile: (() -> Void)?
+    public override func tile() {
+        super.tile()
+        onTile?()
+    }
+}

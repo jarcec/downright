@@ -29,6 +29,17 @@ final class DocumentWindowController: NSWindowController, NSWindowDelegate {
     private let outline = OutlineOverlayView(frame: .zero)
     private let statusBar = StatusBarView(frame: .zero)
     private let notice = NoticeBarView(frame: .zero)
+    private lazy var outlineTop = outline.topAnchor.constraint(equalTo: notice.bottomAnchor, constant: 12)
+
+    /// Keep the outline below the find bar. Modern NSScrollView floats the bar over the
+    /// top of the scroll view and offsets the text with content insets, so the clip view's
+    /// frame does not change; use the bar's own height.
+    private func findBarDidRetile() {
+        let scroll = editor.scrollView
+        let barHeight = scroll.isFindBarVisible ? (scroll.findBarView?.frame.height ?? 0) : 0
+        let constant = 12 + barHeight
+        if abs(outlineTop.constant - constant) > 0.5 { outlineTop.constant = constant }
+    }
 
     init(document: MarkdownDocument) {
         editor = EditorController(textStorage: document.textStorage, theme: Settings.theme)
@@ -71,10 +82,13 @@ final class DocumentWindowController: NSWindowController, NSWindowDelegate {
             scroll.bottomAnchor.constraint(equalTo: statusBar.topAnchor),
             scroll.leadingAnchor.constraint(equalTo: gutter.trailingAnchor),
             scroll.trailingAnchor.constraint(equalTo: container.trailingAnchor),
-            outline.topAnchor.constraint(equalTo: notice.bottomAnchor, constant: 12),
+            outlineTop,
             outline.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -28),
         ])
         window.contentView = container
+        // The find bar (⌘F) takes the top of the scroll view and pushes the text area
+        // down; keep the outline below it by following the clip view's top edge.
+        (scroll as? EditorScrollView)?.onTile = { [weak self] in self?.findBarDidRetile() }
 
         // Join the existing document tab group. Automatic tabbing only attaches to the
         // key window, which does not exist yet when several files arrive in one open
