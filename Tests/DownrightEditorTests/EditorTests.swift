@@ -247,3 +247,32 @@ final class CompactBlankLineTests: XCTestCase {
         XCTAssertGreaterThan(h[6]!, 15, "ordinary blank line keeps full height")
     }
 }
+
+@MainActor
+final class ListGuideTests: XCTestCase {
+    func testNestedListItemsGetIndentGuidesUnderTheirParentsBullet() {
+        let c = EditorController(textStorage: NSTextStorage(string: "* 1\n  * A\n    * x\n    * y\n  * B\n\nend\n"))
+        c.layoutManager.textContainer?.size = CGSize(width: 600, height: 1e7)
+        // lines: 0 1, 1 A, 2 x, 3 y, 4 B, 5 blank, 6 end
+        c.textView.setSelectedRange(NSRange(location: c.lines.lineStarts[6], length: 0))
+        func guides(_ line: Int) -> [CGFloat] { c.engine.decoration(forParagraphAt: c.lines.lineStarts[line]).listGuides }
+        XCTAssertEqual(guides(0).count, 0)
+        XCTAssertEqual(guides(1).count, 1)
+        XCTAssertEqual(guides(2).count, 2)
+        XCTAssertEqual(guides(3).count, 2)
+        XCTAssertEqual(guides(4).count, 1)
+        XCTAssertEqual(guides(6).count, 0)
+
+        // Each guide sits at the centre of the rendered bullet it hangs from.
+        func bulletCentre(line: Int, column: Int) -> CGFloat {
+            let doc = c.contentStorage.documentRange.location
+            let lf = c.layoutManager.textLayoutFragment(for: c.contentStorage.location(doc, offsetBy: c.lines.lineStarts[line])!)!
+            let tl = lf.textLineFragments[0]
+            return lf.layoutFragmentFrame.minX + (tl.locationForCharacter(at: column).x + tl.locationForCharacter(at: column + 1).x) / 2
+        }
+        c.layoutManager.ensureLayout(for: c.layoutManager.documentRange)
+        XCTAssertEqual(guides(2)[0], bulletCentre(line: 0, column: 0), accuracy: 0.5)
+        XCTAssertEqual(guides(2)[1], bulletCentre(line: 1, column: 2), accuracy: 0.5)
+        XCTAssertEqual(guides(4)[0], guides(2)[0])
+    }
+}

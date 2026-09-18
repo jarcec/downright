@@ -76,6 +76,8 @@ public struct Theme: @unchecked Sendable, Equatable {
         }
     }
     public var rule: NSColor { .separatorColor }
+    /// Vertical guides joining the items of a nested list.
+    public var listGuide: NSColor { .separatorColor }
 
     /// The concealment constants (TRD OQ-T7). Zero advance, invisible, length preserved.
     public static var concealedFont: NSFont { .systemFont(ofSize: 0.01) }

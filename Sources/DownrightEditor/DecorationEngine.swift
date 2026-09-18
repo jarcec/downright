@@ -111,7 +111,7 @@ public final class DecorationEngine {
         var indentColumns = 0
         var quoteDepth = 0
 
-        for block in path {
+        for (i, block) in path.enumerated() {
             switch block.kind {
             case .blockQuote:
                 quoteDepth += 1
@@ -124,6 +124,10 @@ public final class DecorationEngine {
                     d.markerStyles.append(StyleRun(m, .foreground(theme.markerColor)))
                 }
             case .listItem(let marker, let contentIndent, let task):
+                if i + 1 < path.count, case .list = path[i + 1].kind {
+                    d.listGuides.append(listGuideX(marker: marker, contentIndent: contentIndent, task: task,
+                                                   indentBefore: indentColumns, quoteDepth: quoteDepth))
+                }
                 indentColumns += contentIndent
                 if block.range.location == pr.location {
                     d.listItem = block
@@ -161,6 +165,31 @@ public final class DecorationEngine {
         guard let leaf = path.last, !leaf.isContainer else { return d }
         leafStyles(leaf, line: li, pr: pr, cr: cr, into: &d)
         return d
+    }
+
+    /// x of a list item's indent guide: the centre of its rendered marker (●, number, or
+    /// checkbox), relative to the column's left edge.
+    private func listGuideX(marker: NSRange, contentIndent: Int, task: TaskMarker?, indentBefore: Int, quoteDepth: Int) -> CGFloat {
+        // The marker's column is what's left of `contentIndent` after the marker and the
+        // spaces following it (a single space when the item is empty or they number 5+).
+        let s = document.sourceString as NSString
+        let lineEnd = lines.contentRange(ofLine: lines.line(containing: marker.location)).end
+        var p = marker.end
+        while p < lineEnd, C.isSpaceOrTab(s.character(at: p)) { p += 1 }
+        let spaces = p - marker.end
+        let gap = p >= lineEnd || spaces >= 5 ? 1 : spaces
+        let column = max(0, contentIndent - marker.length - gap) + indentBefore
+
+        let width: CGFloat
+        if let t = task {
+            let box: NSString = t.state == .checked ? "☑" : "☐"
+            width = box.size(withAttributes: [.font: theme.bodyFont]).width
+        } else if marker.length == 1 {
+            width = ("●" as NSString).size(withAttributes: [.font: NSFont.systemFont(ofSize: theme.bodySize * 0.55)]).width
+        } else {
+            width = (s.substring(with: marker) as NSString).size(withAttributes: [.font: theme.bodyFont]).width
+        }
+        return CGFloat(quoteDepth) * theme.quoteIndent + CGFloat(column) * spaceWidth + width / 2
     }
 
     private func isBlank(_ r: NSRange) -> Bool {

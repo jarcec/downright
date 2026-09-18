@@ -16,6 +16,7 @@ final class DecoratedLayoutFragment: NSTextLayoutFragment {
     var quoteDepth = 0
     var quoteTop = false
     var quoteBottom = false
+    var listGuides: [CGFloat] = []
     var theme = Theme()
 
     override var layoutFragmentFrame: CGRect {
@@ -110,6 +111,12 @@ final class DecoratedLayoutFragment: NSTextLayoutFragment {
             for i in 0..<quoteDepth {
                 let x = i == 0 ? rect.minX : lineRect.minX + CGFloat(i) * theme.quoteIndent + 3
                 context.fill(CGRect(x: x, y: lineRect.minY, width: i == 0 ? 4 : 3, height: height))
+            }
+        }
+        if !listGuides.isEmpty {
+            context.setFillColor(theme.listGuide.cgColor)
+            for x in listGuides {
+                context.fill(CGRect(x: (lineRect.minX + x - 0.5).rounded(), y: lineRect.minY, width: 1, height: height))
             }
         }
         context.restoreGState()

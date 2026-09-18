@@ -716,6 +716,7 @@ public final class EditorController: NSObject, NSTextViewDelegate, @preconcurren
         fragment.quoteDepth = d.quoteDepth
         fragment.quoteTop = d.quoteTop
         fragment.quoteBottom = d.quoteBottom
+        fragment.listGuides = d.listGuides
         fragment.appearance = Self.appearance(for: d.role, revealed: revealed, at: offset, length: length)
         return fragment
     }

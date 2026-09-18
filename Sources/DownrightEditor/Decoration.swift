@@ -66,6 +66,9 @@ public struct ParagraphDecoration {
     /// corners of the quote background).
     public var quoteTop = false
     public var quoteBottom = false
+    /// Nested-list indent guides: one vertical line per ancestor list item whose sub-list
+    /// this line is in, at x (from the column's left edge) under that item's bullet.
+    public var listGuides: [CGFloat] = []
     public var firstLineHeadIndent: CGFloat = 0
     public var headIndent: CGFloat = 0
     public var spacingBefore: CGFloat = 0
