@@ -275,6 +275,54 @@ final class ListGuideTests: XCTestCase {
         XCTAssertEqual(guides(2)[1], bulletCentre(line: 1, column: 2), accuracy: 0.5)
         XCTAssertEqual(guides(4)[0], guides(2)[0])
     }
+
+    private func editor(_ text: String) -> EditorController {
+        let c = EditorController(textStorage: NSTextStorage(string: text))
+        c.layoutManager.textContainer?.size = CGSize(width: 600, height: 1e7)
+        return c
+    }
+    /// Display x of the marker on `line`: the paragraph's indent plus the source's own
+    /// leading spaces, which are real characters and keep their width.
+    private func markerX(_ c: EditorController, line: Int) -> CGFloat {
+        let cr = c.lines.contentRange(ofLine: line)
+        let source = (c.textStorage.string as NSString).substring(with: cr)
+        let spaces = source.prefix(while: { $0 == " " }).count
+        return c.engine.decoration(forParagraphAt: cr.location).firstLineHeadIndent
+            + CGFloat(spaces) * c.theme.spaceWidth
+    }
+
+    /// Two spaces per level barely reads, so every level steps by a full
+    /// `listIndentColumns` on screen — and a source that already indents that far or more
+    /// is left where it is.
+    func testNestingStepsByAFullIndentWhateverTheSourceUses() {
+        for source in ["* 1\n  * A\n    * x\n", "* 1\n   * A\n      * x\n", "* 1\n    * A\n        * x\n"] {
+            let c = editor(source)
+            let step = c.theme.listIndentColumns * c.theme.spaceWidth
+            XCTAssertEqual(markerX(c, line: 0), 0, accuracy: 0.01, source.debugDescription)
+            XCTAssertEqual(markerX(c, line: 1), step, accuracy: 0.01, source.debugDescription)
+            XCTAssertEqual(markerX(c, line: 2), 2 * step, accuracy: 0.01, source.debugDescription)
+        }
+    }
+
+    /// A quote's `>` markers are concealed and stand in as the quote's indent, so they
+    /// must not count towards the nesting.
+    func testQuotedListNestsWithoutCountingItsQuoteMarkers() {
+        let c = editor("> * one\n>   * two\n")
+        let step = c.theme.listIndentColumns * c.theme.spaceWidth
+        func indent(_ line: Int) -> CGFloat {
+            c.engine.decoration(forParagraphAt: c.lines.lineStarts[line]).firstLineHeadIndent
+        }
+        XCTAssertEqual(indent(0), c.theme.quoteIndent, accuracy: 0.01)
+        XCTAssertEqual(indent(1) + 2 * c.theme.spaceWidth, c.theme.quoteIndent + step, accuracy: 0.01)
+    }
+
+    /// A wrapped line hangs at its item's content column, which moves with the indent.
+    func testNestedItemHangsAtItsContentColumn() {
+        let c = editor("* 1\n  * A\n")
+        let d = c.engine.decoration(forParagraphAt: c.lines.lineStarts[1])
+        // The source's own "  " and the "* " the bullet replaces, past the display indent.
+        XCTAssertEqual(d.headIndent, d.firstLineHeadIndent + 4 * c.theme.spaceWidth, accuracy: 0.01)
+    }
 }
 
 @MainActor

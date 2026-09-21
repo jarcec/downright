@@ -98,6 +98,11 @@ public struct Theme: @unchecked Sendable, Equatable {
         return NSColor(srgbRed: r, green: g, blue: b, alpha: a)
     }
 
+    /// Display indent of one list nesting level, in columns. Source lists are commonly
+    /// indented by two spaces, which barely reads; on screen each level steps by this much
+    /// (never less than the source's own indent, so nothing shifts left).
+    public var listIndentColumns: CGFloat { 4 }
+
     /// Width of one space in the body font; used to approximate column-based indents.
     public var spaceWidth: CGFloat {
         (" " as NSString).size(withAttributes: [.font: bodyFont]).width

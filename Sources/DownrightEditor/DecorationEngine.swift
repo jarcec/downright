@@ -108,8 +108,12 @@ public final class DecorationEngine {
             return d
         }
 
-        var indentColumns = 0
         var quoteDepth = 0
+        var listDepth = 0
+        /// Display-only indent of the innermost list item this line belongs to, and the
+        /// column its wrapped text hangs at.
+        var nestingIndent: CGFloat = 0
+        var contentColumns = 0
 
         for (i, block) in path.enumerated() {
             switch block.kind {
@@ -123,12 +127,17 @@ public final class DecorationEngine {
                     d.conceal.append(m)
                     d.markerStyles.append(StyleRun(m, .foreground(theme.markerColor)))
                 }
-            case .listItem(let marker, let contentIndent, let task):
+            case .listItem(let marker, _, let task):
+                listDepth += 1
+                // Step each level by a full `listIndentColumns` on screen, whatever the
+                // source indents by: two spaces per level is easy to miss when reading.
+                let markerColumn = displayColumn(of: marker.location)
+                nestingIndent = max(0, CGFloat(listDepth - 1) * theme.listIndentColumns - CGFloat(markerColumn)) * spaceWidth
+                contentColumns = markerColumn + (contentStart(after: marker) - marker.location)
                 if i + 1 < path.count, case .list = path[i + 1].kind {
-                    d.listGuides.append(listGuideX(marker: marker, contentIndent: contentIndent, task: task,
-                                                   indentBefore: indentColumns, quoteDepth: quoteDepth))
+                    d.listGuides.append(nestingIndent + CGFloat(quoteDepth) * theme.quoteIndent
+                                        + CGFloat(markerColumn) * spaceWidth + markerWidth(marker, task: task) / 2)
                 }
-                indentColumns += contentIndent
                 if block.range.location == pr.location {
                     d.listItem = block
                     let isBullet = marker.length == 1
@@ -163,37 +172,46 @@ public final class DecorationEngine {
         }
 
         d.quoteDepth = quoteDepth
-        d.headIndent = CGFloat(indentColumns) * spaceWidth + CGFloat(quoteDepth) * theme.quoteIndent
-        d.firstLineHeadIndent = CGFloat(quoteDepth) * theme.quoteIndent
+        d.headIndent = CGFloat(contentColumns) * spaceWidth + CGFloat(quoteDepth) * theme.quoteIndent + nestingIndent
+        d.firstLineHeadIndent = CGFloat(quoteDepth) * theme.quoteIndent + nestingIndent
 
         guard let leaf = path.last, !leaf.isContainer else { return d }
         leafStyles(leaf, line: li, pr: pr, cr: cr, into: &d)
         return d
     }
 
-    /// x of a list item's indent guide: the centre of its rendered marker (●, number, or
-    /// checkbox), relative to the column's left edge.
-    private func listGuideX(marker: NSRange, contentIndent: Int, task: TaskMarker?, indentBefore: Int, quoteDepth: Int) -> CGFloat {
-        // The marker's column is what's left of `contentIndent` after the marker and the
-        // spaces following it (a single space when the item is empty or they number 5+).
+    /// Visible column of `offset` on its own line. Block-quote markers are concealed and
+    /// stand in as the quote's indent, so they take up no column.
+    private func displayColumn(of offset: Int) -> Int {
+        let start = lines.lineStarts[lines.line(containing: offset)]
+        var column = offset - start
+        for block in document.path(containing: offset) {
+            guard case .blockQuote = block.kind else { continue }
+            for m in block.markerRanges where m.location >= start && m.end <= offset { column -= m.length }
+        }
+        return max(0, column)
+    }
+
+    /// Where a list item's content starts: past its marker and the spaces after it.
+    private func contentStart(after marker: NSRange) -> Int {
         let s = document.sourceString as NSString
         let lineEnd = lines.contentRange(ofLine: lines.line(containing: marker.location)).end
         var p = marker.end
         while p < lineEnd, C.isSpaceOrTab(s.character(at: p)) { p += 1 }
-        let spaces = p - marker.end
-        let gap = p >= lineEnd || spaces >= 5 ? 1 : spaces
-        let column = max(0, contentIndent - marker.length - gap) + indentBefore
+        return p
+    }
 
-        let width: CGFloat
+    /// Width of a list item's marker as it renders: ●, a checkbox, or the number as typed.
+    private func markerWidth(_ marker: NSRange, task: TaskMarker?) -> CGFloat {
+        let s = document.sourceString as NSString
         if let t = task {
             let box: NSString = t.state == .checked ? "☑" : "☐"
-            width = box.size(withAttributes: [.font: theme.bodyFont]).width
-        } else if marker.length == 1 {
-            width = ("●" as NSString).size(withAttributes: [.font: NSFont.systemFont(ofSize: theme.bodySize * 0.55)]).width
-        } else {
-            width = (s.substring(with: marker) as NSString).size(withAttributes: [.font: theme.bodyFont]).width
+            return box.size(withAttributes: [.font: theme.bodyFont]).width
         }
-        return CGFloat(quoteDepth) * theme.quoteIndent + CGFloat(column) * spaceWidth + width / 2
+        if marker.length == 1 {
+            return ("●" as NSString).size(withAttributes: [.font: NSFont.systemFont(ofSize: theme.bodySize * 0.55)]).width
+        }
+        return (s.substring(with: marker) as NSString).size(withAttributes: [.font: theme.bodyFont]).width
     }
 
     private func isBlank(_ r: NSRange) -> Bool {
