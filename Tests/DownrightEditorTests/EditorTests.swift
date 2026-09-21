@@ -276,3 +276,46 @@ final class ListGuideTests: XCTestCase {
         XCTAssertEqual(guides(4)[0], guides(2)[0])
     }
 }
+
+@MainActor
+final class ListMarkerTintTests: XCTestCase {
+    private func make(_ text: String) -> EditorController {
+        let c = EditorController(textStorage: NSTextStorage(string: text))
+        c.layoutManager.textContainer?.size = CGSize(width: 600, height: 1e7)
+        return c
+    }
+    private func paragraph(_ c: EditorController, line: Int) -> NSAttributedString {
+        let pr = c.lines.paragraphRange(ofLine: line)
+        return c.contentStorage.delegate!.textContentStorage!(c.contentStorage, textParagraphWith: pr)!.attributedString
+    }
+    private func colour(_ a: NSAttributedString, _ i: Int) -> String? {
+        (a.attribute(.foregroundColor, at: i, effectiveRange: nil) as? NSColor)?.hexString
+    }
+
+    /// The raw `-`/`*`/`+` is syntax the rendered line replaces with ●, so on the caret's
+    /// line it tints like any other revealed marker instead of staying grey.
+    func testRevealedBulletMarkerIsTinted() {
+        for bullet in ["-", "*", "+"] {
+            let c = make("\(bullet) item\n\(bullet) other\n")
+            c.textView.setSelectedRange(NSRange(location: 2, length: 0))
+            XCTAssertEqual(colour(paragraph(c, line: 0), 0), c.theme.markerColor.hexString, "\(bullet) revealed")
+            XCTAssertEqual(colour(paragraph(c, line: 1), 0), c.theme.listMarkerColor.hexString, "\(bullet) concealed (●)")
+        }
+    }
+
+    func testRevealedTaskBulletIsTintedButTheCheckboxIsNot() {
+        let c = make("- [ ] task\n- [x] done\n")
+        c.textView.setSelectedRange(NSRange(location: 2, length: 0))
+        let line = paragraph(c, line: 0)
+        XCTAssertEqual(colour(line, 0), c.theme.markerColor.hexString, "the '-' tints")
+        XCTAssertEqual(colour(line, 2), c.theme.secondaryColor.hexString, "the checkbox keeps its own colour")
+    }
+
+    /// Ordered markers are shown as written in both states, so they keep one colour.
+    func testOrderedMarkerKeepsItsColourWhenRevealed() {
+        let c = make("1. one\n2. two\n")
+        c.textView.setSelectedRange(NSRange(location: 3, length: 0))
+        XCTAssertEqual(colour(paragraph(c, line: 0), 0), c.theme.listMarkerColor.hexString)
+        XCTAssertEqual(colour(paragraph(c, line: 1), 0), c.theme.listMarkerColor.hexString)
+    }
+}

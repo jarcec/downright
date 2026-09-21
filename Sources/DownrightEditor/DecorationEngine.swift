@@ -143,6 +143,11 @@ public final class DecorationEngine {
                         d.concealedStyles.append(StyleRun(marker, .baselineOffset(theme.bodySize * 0.14)))
                     }
                     d.styles.append(StyleRun(marker, .foreground(theme.listMarkerColor)))
+                    if isBullet {
+                        // The raw `-`/`*`/`+` is pure syntax (the rendered line shows ● or a
+                        // checkbox instead), so it tints like every other revealed marker.
+                        d.markerStyles.append(StyleRun(marker, .foreground(theme.markerColor)))
+                    }
                     if let t = task {
                         d.substitutions.append((t.range.location, t.state == .checked ? 0x2611 : 0x2610)) // ☑ ☐
                         d.conceal.append(NSRange(location: t.range.location + 1, length: 2))
