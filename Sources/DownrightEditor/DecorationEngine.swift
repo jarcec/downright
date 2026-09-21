@@ -143,11 +143,10 @@ public final class DecorationEngine {
                         d.concealedStyles.append(StyleRun(marker, .baselineOffset(theme.bodySize * 0.14)))
                     }
                     d.styles.append(StyleRun(marker, .foreground(theme.listMarkerColor)))
-                    if isBullet {
-                        // The raw `-`/`*`/`+` is pure syntax (the rendered line shows ● or a
-                        // checkbox instead), so it tints like every other revealed marker.
-                        d.markerStyles.append(StyleRun(marker, .foreground(theme.markerColor)))
-                    }
+                    // A list marker is syntax, so on the caret's line it tints like every
+                    // other revealed marker — the bullet (rendered as ● or a checkbox) and
+                    // the `1.` of an ordered item alike.
+                    d.markerStyles.append(StyleRun(marker, .foreground(theme.markerColor)))
                     if let t = task {
                         d.substitutions.append((t.range.location, t.state == .checked ? 0x2611 : 0x2610)) // ☑ ☐
                         d.conceal.append(NSRange(location: t.range.location + 1, length: 2))

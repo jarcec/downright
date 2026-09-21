@@ -311,11 +311,15 @@ final class ListMarkerTintTests: XCTestCase {
         XCTAssertEqual(colour(line, 2), c.theme.secondaryColor.hexString, "the checkbox keeps its own colour")
     }
 
-    /// Ordered markers are shown as written in both states, so they keep one colour.
-    func testOrderedMarkerKeepsItsColourWhenRevealed() {
+    /// An ordered item's `1.` is syntax too, so it tints on the caret's line and keeps the
+    /// list marker colour everywhere else.
+    func testRevealedOrderedMarkerIsTinted() {
         let c = make("1. one\n2. two\n")
         c.textView.setSelectedRange(NSRange(location: 3, length: 0))
-        XCTAssertEqual(colour(paragraph(c, line: 0), 0), c.theme.listMarkerColor.hexString)
+        let revealed = paragraph(c, line: 0)
+        XCTAssertEqual(colour(revealed, 0), c.theme.markerColor.hexString, "the '1' tints")
+        XCTAssertEqual(colour(revealed, 1), c.theme.markerColor.hexString, "and so does the '.'")
+        XCTAssertEqual(colour(revealed, 3), c.theme.textColor.hexString, "the item's text does not")
         XCTAssertEqual(colour(paragraph(c, line: 1), 0), c.theme.listMarkerColor.hexString)
     }
 }
