@@ -105,7 +105,7 @@ final class DecoratedLayoutFragment: NSTextLayoutFragment {
             // round with the background.
             let rect = CGRect(x: lineRect.minX - 6, y: lineRect.minY, width: width + 12, height: height)
             roundedClip(rect, top: quoteTop, bottom: quoteBottom, radius: 6, in: context)
-            context.setFillColor(theme.codeBlockBackground.cgColor)
+            context.setFillColor(theme.quoteBackground.cgColor)
             context.fill(rect)
             context.setFillColor(theme.quoteBar.cgColor)
             for i in 0..<quoteDepth {

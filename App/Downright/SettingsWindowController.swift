@@ -5,19 +5,33 @@ import SwiftUI
 struct SettingsView: View {
     @ObservedObject var settings = Settings.shared
     @State private var defaultStatus = ""
+    @State private var expanded: Set<ColorToken.Group> = [.page]
 
     var body: some View {
         Form {
-            Section("Appearance") {
-                Picker("Theme", selection: $settings.appearance) {
-                    ForEach(Settings.Appearance.allCases) { Text($0.title).tag($0) }
+            Section("Theme") {
+                Picker("Theme", selection: themeBinding) {
+                    ForEach(ThemePreset.allCases) { Text($0.title).tag($0) }
                 }
                 .pickerStyle(.segmented)
-                colorRow("Syntax markers", value: $settings.markerColor, fallback: Theme.defaultMarkerColor, supportsOpacity: false)
-                colorRow("Vim cursor", value: $settings.cursorColor, fallback: Theme.defaultVimCursorColor, supportsOpacity: true)
-                Text("Markers are the # and ** that appear on the caret's line; the vim cursor is the block shown in normal mode. Defaults are green, the cursor a lighter tone.")
+                Text(themeDescription)
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                if settings.themePreset == .custom {
+                    HStack {
+                        Text("Start over from")
+                        Spacer()
+                        Button("Paper") { Settings.seedCustomColors(from: .paper) }.controlSize(.small)
+                        Button("Ink") { Settings.seedCustomColors(from: .ink) }.controlSize(.small)
+                    }
+                    ForEach(ColorToken.Group.allCases, id: \.self) { group in
+                        DisclosureGroup(group.rawValue, isExpanded: expansion(of: group)) {
+                            ForEach(ColorToken.allCases.filter { $0.group == group }, id: \.self) { token in
+                                ColorPicker(token.title, selection: colorBinding(token), supportsOpacity: token.supportsOpacity)
+                            }
+                        }
+                    }
+                }
             }
             Section("Text") {
                 HStack {
@@ -76,22 +90,46 @@ struct SettingsView: View {
             }
         }
         .formStyle(.grouped)
-        .frame(width: 440)
-        .fixedSize(horizontal: false, vertical: true)
+        // The custom theme's colour wells make this taller than a screen if it sizes to
+        // its content, so the window keeps a height of its own and the form scrolls.
+        .frame(width: 460, height: 620)
     }
 
-    /// Colour picker bound to an optional NSColor, with a Reset control when customised.
-    private func colorRow(_ title: String, value: Binding<NSColor?>, fallback: NSColor, supportsOpacity: Bool) -> some View {
-        HStack {
-            ColorPicker(title, selection: Binding(
-                get: { Color(nsColor: value.wrappedValue ?? fallback) },
-                set: { value.wrappedValue = NSColor($0) }
-            ), supportsOpacity: supportsOpacity)
-            if value.wrappedValue != nil {
-                Button("Reset") { value.wrappedValue = nil }
-                    .controlSize(.small)
-            }
+    private var themeDescription: String {
+        switch settings.themePreset {
+        case .auto: return "Paper in daylight, Ink at night, following macOS."
+        case .paper: return "A warm cream page with ink-brown text, always light."
+        case .ink: return "The same palette at night: a warm dark ground, never flat grey."
+        case .custom: return "Your own colours. Pick a starting point, then change what you like — the rest of the app follows the background."
         }
+    }
+
+    /// Switching to Custom seeds the wells from whatever is on screen now, so there is
+    /// something whole to edit rather than a blank set.
+    private var themeBinding: Binding<ThemePreset> {
+        Binding(
+            get: { settings.themePreset },
+            set: { new in
+                if new == .custom, settings.customColors.isEmpty {
+                    Settings.seedCustomColors(from: settings.themePreset == .custom ? .paper : settings.themePreset)
+                }
+                settings.themePreset = new
+            }
+        )
+    }
+
+    private func colorBinding(_ token: ColorToken) -> Binding<Color> {
+        Binding(
+            get: { Color(nsColor: Settings.palette[token]) },
+            set: { settings.customColors[token.rawValue] = NSColor($0).hexString }
+        )
+    }
+
+    private func expansion(of group: ColorToken.Group) -> Binding<Bool> {
+        Binding(get: { expanded.contains(group) },
+                set: { open in
+                    if open { expanded.insert(group) } else { expanded.remove(group) }
+                })
     }
 }
 

@@ -51,9 +51,14 @@ public enum TOML {
 
     /// Return `text` with the given flat keys set, editing existing `key = …` lines in
     /// place (comments and unknown keys survive) and appending the rest.
-    public static func updating(_ text: String, with values: [String: TOMLValue]) -> String {
+    ///
+    /// `removing` drops the lines of keys the app has retired, so a file written by an
+    /// older version does not keep settings nothing reads any more. Every other unknown
+    /// key is left alone — the file may be shared with other tools.
+    public static func updating(_ text: String, with values: [String: TOMLValue], removing retired: Set<String> = []) -> String {
         var lines = text.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
         var remaining = values
+        var dropped: [Int] = []
         var section = ""
         for i in lines.indices {
             let stripped = stripComment(lines[i]).trimmingCharacters(in: .whitespaces)
@@ -64,11 +69,13 @@ public enum TOML {
             guard let eq = stripped.firstIndex(of: "=") else { continue }
             let key = stripped[..<eq].trimmingCharacters(in: .whitespaces)
             let full = section.isEmpty ? key : "\(section).\(key)"
+            if retired.contains(full) { dropped.append(i); continue }
             guard let newValue = remaining.removeValue(forKey: full) else { continue }
             // Keep any trailing comment on the line.
             let comment = trailingComment(lines[i])
             lines[i] = "\(key) = \(newValue.serialized)" + (comment.map { "  " + $0 } ?? "")
         }
+        for i in dropped.reversed() { lines.remove(at: i) }
         if !remaining.isEmpty {
             while let last = lines.last, last.trimmingCharacters(in: .whitespaces).isEmpty { lines.removeLast() }
             if !lines.isEmpty { lines.append("") }

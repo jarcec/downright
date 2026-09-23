@@ -16,10 +16,28 @@ public final class EditorController: NSObject, NSTextViewDelegate, @preconcurren
         didSet {
             guard theme != oldValue else { return }
             rebuildEngine()
+            applyThemeColors()
             invalidate([NSRange(location: 0, length: textStorage.length)])
             textView.updateBlockCursor()
         }
     }
+
+    /// Push the theme's colours onto the views that draw outside the text: the page
+    /// itself, the caret, link styling and the gutter.
+    public func applyThemeColors() {
+        textView.textColor = theme.textColor
+        textView.typingAttributes = [.font: theme.bodyFont, .foregroundColor: theme.textColor]
+        textView.linkTextAttributes = [.foregroundColor: theme.accentColor, .cursor: NSCursor.pointingHand]
+        textView.backgroundColor = theme.backgroundColor
+        textView.insertionPointColor = theme.textColor
+        textView.selectedTextAttributes = [.backgroundColor: theme.markerColor.withAlphaComponent(0.25)]
+        scrollView.backgroundColor = theme.backgroundColor
+        textView.updateInsertionPointColor()
+        onThemeChange?()
+    }
+
+    /// Called after `applyThemeColors()` so the window's own chrome can follow.
+    public var onThemeChange: (() -> Void)?
 
     private func rebuildEngine() {
         engine = DecorationEngine(document: document, lines: lines, theme: theme, sourceMode: mode == .raw)
@@ -291,9 +309,6 @@ public final class EditorController: NSObject, NSTextViewDelegate, @preconcurren
         textView.usesRuler = false
         textView.isRulerVisible = false
         textView.font = theme.bodyFont
-        textView.textColor = theme.textColor
-        textView.typingAttributes = [.font: theme.bodyFont, .foregroundColor: theme.textColor]
-        textView.linkTextAttributes = [.foregroundColor: theme.accentColor, .cursor: NSCursor.pointingHand]
         textView.textContainerInset = NSSize(width: 28, height: 24)
         textView.isVerticallyResizable = true
         textView.isHorizontallyResizable = false
@@ -301,7 +316,6 @@ public final class EditorController: NSObject, NSTextViewDelegate, @preconcurren
         textView.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
         textView.minSize = NSSize(width: 0, height: 0)
         textView.drawsBackground = true
-        textView.backgroundColor = .textBackgroundColor
 
         scrollView.documentView = textView
         scrollView.hasVerticalScroller = true
@@ -309,8 +323,8 @@ public final class EditorController: NSObject, NSTextViewDelegate, @preconcurren
         scrollView.autohidesScrollers = true
         scrollView.borderType = .noBorder
         scrollView.drawsBackground = true
-        scrollView.backgroundColor = .textBackgroundColor
         scrollView.autoresizingMask = [.width, .height]
+        applyThemeColors()
         scrollView.contentView.postsFrameChangedNotifications = true
         NotificationCenter.default.addObserver(self, selector: #selector(clipFrameChanged(_:)), name: NSView.frameDidChangeNotification, object: scrollView.contentView)
     }

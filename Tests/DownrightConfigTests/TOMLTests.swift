@@ -45,6 +45,31 @@ final class TOMLTests: XCTestCase {
         XCTAssertEqual(TOML.parse(out)["vim_mode"], .bool(true))
     }
 
+    /// Retired keys go; every other key the app does not know still survives.
+    func testUpdateDropsRetiredKeys() {
+        let text = """
+        # My settings
+        appearance = "light"
+        line_numbers = true
+        marker_color = "#00FF00"
+        custom_future_key = "keep me"
+        [colors]
+        background = "#101010"
+        """
+        let out = TOML.updating(text, with: ["line_numbers": .bool(false)],
+                                removing: ["appearance", "marker_color", "colors.background"])
+        XCTAssertEqual(out, """
+        # My settings
+        line_numbers = false
+        custom_future_key = "keep me"
+        [colors]
+
+        """)
+        XCTAssertNil(TOML.parse(out)["appearance"])
+        XCTAssertNil(TOML.parse(out)["colors.background"])
+        XCTAssertEqual(TOML.parse(out)["custom_future_key"], .string("keep me"))
+    }
+
     func testRoundTripStrings() {
         let v = TOMLValue.string("q\"uote \\ back\nline")
         XCTAssertEqual(TOML.parse("k = \(v.serialized)")["k"], v)

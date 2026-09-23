@@ -212,6 +212,17 @@ final class DocumentWindowController: NSWindowController, NSWindowDelegate {
         editor.textView.copiesRichTextByDefault = Settings.copyRichText
         editor.theme = Settings.theme
         editor.maxContentWidth = CGFloat(Settings.maxContentWidth)
+        applyTheme()
+    }
+
+    /// The theme reaches past the text: the gutter, the floating outline and the window
+    /// itself, so a warm page does not sit in grey chrome.
+    private func applyTheme() {
+        let theme = editor.theme
+        outline.theme = theme
+        gutter.needsDisplay = true
+        window?.backgroundColor = theme.backgroundColor
+        statusBar.theme = theme
     }
 
     private var stats = EditorController.Statistics(lines: 0, words: 0, characters: 0)

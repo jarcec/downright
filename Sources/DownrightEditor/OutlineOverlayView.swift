@@ -5,6 +5,8 @@ import AppKit
 @MainActor
 public final class OutlineOverlayView: NSVisualEffectView, NSTableViewDataSource, NSTableViewDelegate {
     public var onSelect: ((Int) -> Void)?
+    /// Colours follow the editor's theme, so the panel matches the page it floats over.
+    public var theme = Theme() { didSet { applyTheme() } }
     /// Called when the user collapses or expands the panel, so the host can persist it.
     public var onCollapsedChange: ((Bool) -> Void)?
     public var maxHeight: CGFloat = 360 { didSet { updateHeight() } }
@@ -39,7 +41,7 @@ public final class OutlineOverlayView: NSVisualEffectView, NSTableViewDataSource
         wantsLayer = true
         layer?.cornerRadius = 8
         layer?.borderWidth = 0.5
-        layer?.borderColor = NSColor.separatorColor.cgColor
+        layer?.borderColor = theme.rule.cgColor
         layer?.masksToBounds = true
         translatesAutoresizingMaskIntoConstraints = false
 
@@ -73,7 +75,7 @@ public final class OutlineOverlayView: NSVisualEffectView, NSTableViewDataSource
         header.imagePosition = .imageTrailing
         header.alignment = .left
         header.font = .systemFont(ofSize: 11, weight: .semibold)
-        header.contentTintColor = .secondaryLabelColor
+        header.contentTintColor = theme.secondaryColor
         header.target = self
         header.action = #selector(toggleCollapsed(_:))
         header.translatesAutoresizingMaskIntoConstraints = false
@@ -222,9 +224,15 @@ public final class OutlineOverlayView: NSVisualEffectView, NSTableViewDataSource
             tf.leadingAnchor.constraint(equalTo: cell.leadingAnchor, constant: 12 + CGFloat(max(0, h.level - 1)) * 10).isActive = true
             tf.stringValue = h.title.isEmpty ? "(untitled)" : h.title
             tf.font = h.level == 1 ? .systemFont(ofSize: 11.5, weight: .semibold) : .systemFont(ofSize: 11, weight: h.level == 2 ? .medium : .regular)
-            tf.textColor = h.level <= 2 ? .labelColor : .secondaryLabelColor
+            tf.textColor = h.level <= 2 ? theme.textColor : theme.secondaryColor
         }
         return cell
+    }
+
+    private func applyTheme() {
+        layer?.borderColor = theme.rule.cgColor
+        header.contentTintColor = theme.secondaryColor
+        table.reloadData()
     }
 
     public func tableViewSelectionDidChange(_ notification: Notification) {

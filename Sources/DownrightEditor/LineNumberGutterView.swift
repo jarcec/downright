@@ -66,7 +66,7 @@ public final class LineNumberGutterView: NSView {
     }
 
     public override func draw(_ dirtyRect: NSRect) {
-        NSColor.textBackgroundColor.setFill()
+        (controller?.theme.backgroundColor ?? .textBackgroundColor).setFill()
         dirtyRect.fill()
         guard let c = controller, let window else { return }
         let tv = c.textView
@@ -76,8 +76,8 @@ public final class LineNumberGutterView: NSView {
         let caretLine = c.lines.line(containing: tv.selectedRange().location)
         let width = bounds.width
 
-        let normal: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: NSColor.tertiaryLabelColor]
-        let current: [NSAttributedString.Key: Any] = [.font: NSFont.monospacedDigitSystemFont(ofSize: 11, weight: .semibold), .foregroundColor: NSColor.secondaryLabelColor]
+        let normal: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: c.theme.faintColor]
+        let current: [NSAttributedString.Key: Any] = [.font: NSFont.monospacedDigitSystemFont(ofSize: 11, weight: .semibold), .foregroundColor: c.theme.secondaryColor]
 
         let start = CGPoint(x: 0, y: max(0, visible.minY - inset.height))
         guard let firstFragment = lm.textLayoutFragment(for: start) else { return }
@@ -111,7 +111,7 @@ public final class LineNumberGutterView: NSView {
             if c.foldableBlock(atLine: line) != nil {
                 let folded = c.isFolded(line: line)
                 let chev = (folded ? "▸" : "▾") as NSString
-                let cattrs: [NSAttributedString.Key: Any] = [.font: NSFont.systemFont(ofSize: 9), .foregroundColor: folded ? NSColor.secondaryLabelColor : NSColor.quaternaryLabelColor]
+                let cattrs: [NSAttributedString.Key: Any] = [.font: NSFont.systemFont(ofSize: 9), .foregroundColor: folded ? c.theme.secondaryColor : c.theme.faintColor]
                 let cs = chev.size(withAttributes: cattrs)
                 chev.draw(at: NSPoint(x: 3, y: anchor - cs.height / 2), withAttributes: cattrs)
             }

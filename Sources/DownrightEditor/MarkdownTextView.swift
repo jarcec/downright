@@ -29,8 +29,13 @@ public final class MarkdownTextView: NSTextView {
     }()
 
     func vimModeDidChange() {
-        insertionPointColor = (vim.isEnabled && vim.mode != .insert) ? .clear : .textColor
+        updateInsertionPointColor()
         updateBlockCursor()
+    }
+
+    /// The caret is hidden while vim draws its own block cursor.
+    func updateInsertionPointColor() {
+        insertionPointColor = (vim.isEnabled && vim.mode != .insert) ? .clear : (controller?.theme.textColor ?? .textColor)
     }
 
     func modeDidChange() { if controller?.mode != .live { hideTableHandles() } }
@@ -168,7 +173,7 @@ public final class MarkdownTextView: NSTextView {
         let b = NSButton(frame: NSRect(x: 0, y: 0, width: 18, height: 18))
         b.image = NSImage(systemSymbolName: "plus.circle.fill", accessibilityDescription: tip)
         b.symbolConfiguration = .init(pointSize: 15, weight: .regular)
-        b.contentTintColor = .controlAccentColor
+        b.contentTintColor = controller?.theme.accentColor ?? .controlAccentColor
         b.isBordered = false
         b.imagePosition = .imageOnly
         b.toolTip = tip
@@ -176,7 +181,7 @@ public final class MarkdownTextView: NSTextView {
         b.action = action
         b.isHidden = true
         b.wantsLayer = true
-        b.layer?.backgroundColor = NSColor.textBackgroundColor.cgColor
+        b.layer?.backgroundColor = (controller?.theme.backgroundColor ?? .textBackgroundColor).cgColor
         b.layer?.cornerRadius = 9
         addSubview(b)
         return b

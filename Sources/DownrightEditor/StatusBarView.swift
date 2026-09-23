@@ -12,6 +12,12 @@ public final class StatusBarView: NSView {
     private let modeControl = NSSegmentedControl(labels: EditorController.Mode.allCases.map(\.title), trackingMode: .selectOne, target: nil, action: nil)
     /// Called when the user picks a mode in the bar.
     public var onModeChange: ((EditorController.Mode) -> Void)?
+    /// Colours follow the editor's theme.
+    public var theme = Theme() {
+        didSet {
+            for label in [leading, trailing] { label.textColor = theme.secondaryColor }
+        }
+    }
 
     public override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)

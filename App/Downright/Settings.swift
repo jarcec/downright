@@ -15,32 +15,17 @@ final class Settings: ObservableObject {
     static let shared = Settings()
     static let didChange = Notification.Name("DownrightSettingsDidChange")
 
-    enum Appearance: String, CaseIterable, Identifiable {
-        case system, light, dark
-        var id: String { rawValue }
-        var title: String {
-            switch self {
-            case .system: return "System"
-            case .light: return "Light"
-            case .dark: return "Dark"
-            }
-        }
-        /// `nil` means follow the system.
-        var nsAppearance: NSAppearance? {
-            switch self {
-            case .system: return nil
-            case .light: return NSAppearance(named: .aqua)
-            case .dark: return NSAppearance(named: .darkAqua)
-            }
-        }
-    }
-
     // MARK: - Values
 
     @Published var showLineNumbers = true { didSet { changed() } }
     @Published var showOutline = true { didSet { changed() } }
     @Published var outlineCollapsed = false { didSet { changed() } }
-    @Published var appearance: Appearance = .system { didSet { changed() } }
+    /// Which palette the editor draws with.
+    @Published var themePreset: ThemePreset = .auto { didSet { changed() } }
+    /// The custom theme's colours, `ColorToken.rawValue` → `#RRGGBBAA`. Only meaningful
+    /// while `themePreset` is `.custom`; kept on file so switching away and back is
+    /// lossless.
+    @Published var customColors: [String: String] = [:] { didSet { changed() } }
     @Published var vimMode = false { didSet { changed() } }
     /// ⌘C copies formatted text (⌘⇧C then copies Markdown source) instead of the reverse.
     @Published var copyRichText = false { didSet { changed() } }
@@ -48,30 +33,33 @@ final class Settings: ObservableObject {
     @Published var fontSize: Double = 15 { didSet { changed() } }
     /// Maximum text column width in points; 0 = use the full window.
     @Published var maxContentWidth: Double = 0 { didSet { changed() } }
-    /// Colour of revealed syntax markers; nil = theme default (green).
-    @Published var markerColor: NSColor? = nil { didSet { changed() } }
-    /// Vim block-cursor colour; nil = theme default (lighter marker green).
-    @Published var cursorColor: NSColor? = nil { didSet { changed() } }
 
     // Static accessors keep call sites short.
     static var showLineNumbers: Bool { get { shared.showLineNumbers } set { shared.showLineNumbers = newValue } }
     static var showOutline: Bool { get { shared.showOutline } set { shared.showOutline = newValue } }
     static var outlineCollapsed: Bool { get { shared.outlineCollapsed } set { shared.outlineCollapsed = newValue } }
-    static var appearance: Appearance { get { shared.appearance } set { shared.appearance = newValue } }
+    static var themePreset: ThemePreset { get { shared.themePreset } set { shared.themePreset = newValue } }
     static var vimMode: Bool { get { shared.vimMode } set { shared.vimMode = newValue } }
     static var copyRichText: Bool { get { shared.copyRichText } set { shared.copyRichText = newValue } }
-    static var markerColor: NSColor? { get { shared.markerColor } set { shared.markerColor = newValue } }
     static var fontSize: Double { get { shared.fontSize } set { shared.fontSize = min(max(newValue, 9), 40) } }
     static var maxContentWidth: Double { get { shared.maxContentWidth } set { shared.maxContentWidth = newValue } }
-    static var cursorColor: NSColor? { get { shared.cursorColor } set { shared.cursorColor = newValue } }
+
+    /// The palette in force: a preset, or the user's own colours.
+    static var palette: Palette {
+        shared.themePreset == .custom ? Palette.custom(shared.customColors) : shared.themePreset.palette
+    }
 
     /// The editor theme reflecting the current settings.
     static var theme: Theme {
-        var t = Theme()
+        var t = Theme(preset: shared.themePreset, palette: palette)
         t.bodySize = CGFloat(shared.fontSize)
-        if let m = shared.markerColor { t.markerColor = m }
-        if let c = shared.cursorColor { t.vimCursorColor = c }
         return t
+    }
+
+    /// Seed the custom theme from a preset, so customising starts from something whole
+    /// rather than from a blank set of colour wells.
+    static func seedCustomColors(from preset: ThemePreset) {
+        shared.customColors = preset.palette.hexValues
     }
 
     /// Make Downright the default app for Markdown files (the UTIs behind .md/.markdown).
@@ -92,12 +80,20 @@ final class Settings: ObservableObject {
         }
     }
 
-    /// Push the chosen appearance to the app. Safe to call repeatedly.
+    /// Match the app's own chrome — title bar, sheets, scrollers — to the theme. Auto
+    /// follows the system; the rest follow their background, custom colours included.
     static func applyAppearance() {
-        NSApp.appearance = appearance.nsAppearance
+        switch shared.themePreset {
+        case .auto: NSApp.appearance = nil
+        default: NSApp.appearance = NSAppearance(named: palette.isDark ? .darkAqua : .aqua)
+        }
     }
 
     // MARK: - File
+
+    /// Keys earlier versions wrote, dropped on the next save. `appearance` is read once
+    /// on the way out, in `apply(_:)`, to pick the theme that matches it.
+    private static let retiredKeys: Set<String> = ["appearance", "marker_color", "cursor_color"]
 
     let fileURL: URL
     private var suppressChanges = false
@@ -111,9 +107,13 @@ final class Settings: ObservableObject {
     # The app rewrites values in place when you change them in Settings; comments and
     # extra keys are kept, so this file is safe to manage with chezmoi.
     #
-    # appearance: "system" | "light" | "dark"
+    # theme: "auto" (Paper by day, Ink by night) | "paper" | "ink" | "custom"
+    # colors.<name>: the custom theme's colours, "#RRGGBB" or "#RRGGBBAA" — only used
+    #   when theme = "custom". Anything you leave out comes from Paper, or from Ink when
+    #   your background is dark. Names: background, text, secondary, faint, accent, marker,
+    #   cursor, listMarker, rule, inlineCode, codeBlock, quote, quoteBar, frontmatter and
+    #   code<Keyword|Type|String|Comment|Number|Key|Variable|Added|Removed|Meta|Tag|Attribute>.
     # copy_rich_text: when true, ⌘C copies formatted text and ⌘⇧C copies Markdown source
-    # marker_color / cursor_color: "#RRGGBB" or "#RRGGBBAA", or "default"
     # font_size: body text size in points (⌘+ / ⌘- / ⌘0 change it too)
     # max_content_width: widest text column in points; 0 uses the whole window
 
@@ -148,6 +148,9 @@ final class Settings: ObservableObject {
         if let text = try? String(contentsOf: fileURL, encoding: .utf8) {
             apply(TOML.parse(text))
             lastWrittenText = text
+            // Writes only if the file differs from what this version reads — which is how
+            // a file from before themes loses its retired keys.
+            save()
             DebugLog.write("settings loaded from \(fileURL.path)")
         } else {
             migrateFromUserDefaults()
@@ -163,13 +166,23 @@ final class Settings: ObservableObject {
         if case .bool(let b)? = values["line_numbers"] { showLineNumbers = b }
         if case .bool(let b)? = values["outline"] { showOutline = b }
         if case .bool(let b)? = values["outline_collapsed"] { outlineCollapsed = b }
-        if case .string(let s)? = values["appearance"], let a = Appearance(rawValue: s) { appearance = a }
+        if case .string(let s)? = values["theme"], let t = ThemePreset(rawValue: s) {
+            themePreset = t
+        } else if case .string(let s)? = values["appearance"] {
+            // A file from before themes: its light/dark choice picks the matching palette.
+            themePreset = s == "light" ? .paper : s == "dark" ? .ink : .auto
+        }
         if case .bool(let b)? = values["vim_mode"] { vimMode = b }
         if case .bool(let b)? = values["copy_rich_text"] { copyRichText = b }
         if case .int(let n)? = values["font_size"] { fontSize = Double(n) }
         if case .int(let n)? = values["max_content_width"] { maxContentWidth = Double(n) }
-        markerColor = { if case .string(let s)? = values["marker_color"] { return Theme.color(hex: s) }; return nil }()
-        cursorColor = { if case .string(let s)? = values["cursor_color"] { return Theme.color(hex: s) }; return nil }()
+        var colors: [String: String] = [:]
+        for token in ColorToken.allCases {
+            if case .string(let hex)? = values["colors.\(token.rawValue)"], Theme.color(hex: hex) != nil {
+                colors[token.rawValue] = hex
+            }
+        }
+        customColors = colors
         NotificationCenter.default.post(name: Self.didChange, object: self)
     }
 
@@ -178,15 +191,14 @@ final class Settings: ObservableObject {
             "line_numbers": .bool(showLineNumbers),
             "outline": .bool(showOutline),
             "outline_collapsed": .bool(outlineCollapsed),
-            "appearance": .string(appearance.rawValue),
+            "theme": .string(themePreset.rawValue),
             "vim_mode": .bool(vimMode),
             "copy_rich_text": .bool(copyRichText),
             "font_size": .int(Int(fontSize.rounded())),
             "max_content_width": .int(Int(maxContentWidth.rounded())),
         ]
-        // Colours are written only when customised, so the defaults can evolve.
-        v["marker_color"] = .string(markerColor?.hexString ?? "default")
-        v["cursor_color"] = .string(cursorColor?.hexString ?? "default")
+        // The custom palette is written only once there is one, so the presets can evolve.
+        for (name, hex) in customColors { v["colors.\(name)"] = .string(hex) }
         return v
     }
 
@@ -197,7 +209,6 @@ final class Settings: ObservableObject {
         if d.object(forKey: "showLineNumbers") != nil { showLineNumbers = d.bool(forKey: "showLineNumbers") }
         if d.object(forKey: "showOutline") != nil { showOutline = d.bool(forKey: "showOutline") }
         if d.object(forKey: "outlineCollapsed") != nil { outlineCollapsed = d.bool(forKey: "outlineCollapsed") }
-        if let s = d.string(forKey: "appearance"), let a = Appearance(rawValue: s) { appearance = a }
         if d.object(forKey: "vimMode") != nil { vimMode = d.bool(forKey: "vimMode") }
     }
 
@@ -216,10 +227,24 @@ final class Settings: ObservableObject {
         }
     }
 
+    /// The leading comment block is the app's own documentation, so a file written by an
+    /// older version is brought up to date with it rather than left describing settings
+    /// that no longer exist. A file that does not start with our header is left alone.
+    private static func refreshingHeader(_ text: String) -> String {
+        guard text.hasPrefix("# Downright settings") else { return text }
+        var lines = text.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
+        var end = 0
+        while end < lines.count, lines[end].hasPrefix("#") { end += 1 }
+        while end < lines.count, lines[end].trimmingCharacters(in: .whitespaces).isEmpty { end += 1 }
+        lines.removeSubrange(0..<end)
+        let rest = lines.joined(separator: "\n")
+        return rest.isEmpty ? header : header + "\n" + rest
+    }
+
     /// Write the current values into the file, editing existing lines in place.
     func save() {
-        let existing = (try? String(contentsOf: fileURL, encoding: .utf8)) ?? Self.header
-        let text = TOML.updating(existing, with: values)
+        let existing = Self.refreshingHeader((try? String(contentsOf: fileURL, encoding: .utf8)) ?? Self.header)
+        let text = TOML.updating(existing, with: values, removing: Self.retiredKeys)
         guard text != lastWrittenText else { return }
         do {
             try FileManager.default.createDirectory(at: fileURL.deletingLastPathComponent(), withIntermediateDirectories: true)

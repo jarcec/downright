@@ -6,7 +6,10 @@ import MarkdownKit
 /// tab-separated rows and images their alt text.
 @MainActor
 public enum RichTextExporter {
-    public static func attributedString(markdown: String, theme: Theme = Theme(), dialect: Dialect = .gfm) -> NSAttributedString {
+    public static func attributedString(markdown: String, theme inputTheme: Theme = Theme(), dialect: Dialect = .gfm) -> NSAttributedString {
+        // Keep the sizes, drop the page: this text lands on paper or in someone else's
+        // app, where cream-on-dark would be invisible. Only the editor shows a dark theme.
+        let theme = inputTheme.forExport
         let doc = MarkdownParser.parse(markdown, dialect: dialect)
         let out = NSMutableAttributedString()
         let src = markdown as NSString
