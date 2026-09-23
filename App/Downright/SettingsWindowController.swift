@@ -21,8 +21,7 @@ struct SettingsView: View {
                     }
                 }
                 .padding(.vertical, 2)
-                slotRow(.light)
-                slotRow(.dark)
+                ForEach(visibleSlots) { slotRow($0) }
                 Text(appearanceDescription)
                     .font(.caption)
                     .foregroundStyle(colors.secondary)
@@ -147,14 +146,24 @@ struct SettingsView: View {
         let light = settings.lightTheme.title, dark = settings.darkTheme.title
         switch settings.appearance {
         case .system: return "Follows macOS: \(light) in the light, \(dark) after dark."
-        case .light: return "\(light), whatever macOS is set to."
-        case .dark: return "\(dark), whatever macOS is set to."
+        case .light: return "\(light), whatever macOS is set to. Switch to System to set a theme for the dark too."
+        case .dark: return "\(dark), whatever macOS is set to. Switch to System to set a theme for the light too."
         }
     }
 
-    /// The slots set to Custom — the ones with colours to edit.
+    /// The slots the mode can actually reach: both under System, otherwise just the one
+    /// in force — there is no sense in configuring a theme that cannot appear.
+    private var visibleSlots: [ThemeSlot] {
+        switch settings.appearance {
+        case .system: return ThemeSlot.allCases
+        case .light: return [.light]
+        case .dark: return [.dark]
+        }
+    }
+
+    /// The reachable slots set to Custom — the ones with colours to edit.
     private var customSlots: [ThemeSlot] {
-        ThemeSlot.allCases.filter { Settings.selection.choice(for: $0) == .custom }
+        visibleSlots.filter { Settings.selection.choice(for: $0) == .custom }
     }
 
     /// The slot the colour wells edit: the one being customised, or the chosen one when
