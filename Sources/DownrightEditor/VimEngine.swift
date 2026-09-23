@@ -147,7 +147,10 @@ public final class VimEngine {
                 return true
             }
             guard let s = event.charactersIgnoringModifiers, let ch = s.first else { return true }
-            if ch == "." { replayLastChange(); return true }
+            // `.` repeats the last change — unless something is waiting for a literal
+            // character, where a full stop is a perfectly good one: `dt.` deletes up to
+            // the next one.
+            if ch == ".", pendingFind == nil, pendingTextObject == nil { replayLastChange(); return true }
             let before = controller?.editCount ?? 0
             pendingKeys.append(ch)
             normal(ch)

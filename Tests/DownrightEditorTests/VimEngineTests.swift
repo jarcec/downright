@@ -26,6 +26,36 @@ final class VimEngineTests: XCTestCase {
     private func enter() { key("\r", code: 36) }
     private var caret: Int { c.textView.selectedRange().location }
 
+    /// `.` is both the repeat command and a perfectly ordinary target for f/t.
+    func testFindTargetCanBeAFullStop() {
+        load("one two. three\n")
+        keys("dt.")
+        XCTAssertEqual(storage.string, ". three\n")
+
+        load("one two. three\n")
+        keys("df.")
+        XCTAssertEqual(storage.string, " three\n")
+
+        load("one two. three\n")
+        keys("f.")
+        XCTAssertEqual(caret, 7)
+
+        // And a text object that does not exist cancels the operator rather than repeating.
+        load("hello world\n", caret: 0)
+        keys("x")                       // a change to repeat
+        keys("di.")
+        XCTAssertEqual(storage.string, "ello world\n", "di. is not a repeat of x")
+    }
+
+    func testRepeatStillWorksAfterAFind() {
+        load("xx one. two. three\n", caret: 3)
+        keys("dt.")
+        XCTAssertEqual(storage.string, "xx . two. three\n")
+        keys("w")                       // onto "two"
+        keys(".")
+        XCTAssertEqual(storage.string, "xx . . three\n", "the repeat replays the whole dt.")
+    }
+
     func testStartsInNormalAndInsertPassesThrough() {
         load("abc")
         XCTAssertEqual(vim.mode, .normal)
