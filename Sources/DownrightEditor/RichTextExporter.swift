@@ -2,10 +2,28 @@ import AppKit
 import MarkdownKit
 
 /// Renders Markdown to an attributed string for the pasteboard: markers removed, real
-/// fonts and links, list prefixes, monospace code. Not a layout engine — tables become
-/// tab-separated rows and images their alt text.
+/// fonts and links, list prefixes, monospace code, and tables as real tables (an
+/// `NSTextTable`, which is what RTF and HTML carry into other apps). Not a layout engine —
+/// images become their alt text.
 @MainActor
 public enum RichTextExporter {
+    static func alignment(_ a: TableAlignment) -> NSTextAlignment {
+        switch a {
+        case .left: return .left
+        case .center: return .center
+        case .right: return .right
+        case .none: return .natural
+        }
+    }
+
+    /// The same text as HTML, for the apps that take that flavour in preference to RTF
+    /// (Slack, Google Docs, Notion). Nil when AppKit cannot convert it.
+    public static func html(_ rich: NSAttributedString) -> Data? {
+        try? rich.data(from: NSRange(location: 0, length: rich.length),
+                       documentAttributes: [.documentType: NSAttributedString.DocumentType.html,
+                                            .characterEncoding: String.Encoding.utf8.rawValue])
+    }
+
     public static func attributedString(markdown: String, theme inputTheme: Theme = Theme(), dialect: Dialect = .gfm) -> NSAttributedString {
         // Keep the sizes, drop the page: this text lands on paper or in someone else's
         // app, where cream-on-dark would be invisible. Only the editor shows a dark theme.
@@ -124,15 +142,36 @@ public enum RichTextExporter {
                 case .thematicBreak:
                     out.append(NSAttributedString(string: "———\n", attributes: base(theme.bodyFont, indent: indent)))
                 case .table(let t):
+                    // A real NSTextTable: RTF and HTML both carry one, so the table
+                    // arrives as a table in Pages, Word, Mail or Slack rather than as
+                    // tab-separated lines.
+                    let table = NSTextTable()
+                    table.numberOfColumns = max(1, t.columnCount)
+                    table.layoutAlgorithm = .automaticLayoutAlgorithm
+                    table.collapsesBorders = true
+                    table.hidesEmptyCells = false
                     for (ri, row) in t.allRows.enumerated() {
-                        let f = ri == 0 ? theme.bodyFont.adding(.bold) : theme.bodyFont
-                        let attrs = base(f, indent: indent, spacingAfter: 2)
-                        for (ci, cell) in row.cells.enumerated() {
-                            if ci > 0 { out.append(NSAttributedString(string: "\t", attributes: attrs)) }
-                            appendInlines(cell.inlines, attrs: attrs)
+                        let header = ri == 0
+                        let font = header ? theme.bodyFont.adding(.bold) : theme.bodyFont
+                        for ci in 0..<table.numberOfColumns {
+                            let block = NSTextTableBlock(table: table, startingRow: ri, rowSpan: 1, startingColumn: ci, columnSpan: 1)
+                            block.setBorderColor(theme.rule)
+                            block.setWidth(1, type: .absoluteValueType, for: .border)
+                            block.setWidth(4, type: .absoluteValueType, for: .padding)
+                            if header { block.backgroundColor = theme.codeBlockBackground }
+                            let ps = NSMutableParagraphStyle()
+                            ps.textBlocks = [block]
+                            ps.alignment = Self.alignment(t.alignments.indices.contains(ci) ? t.alignments[ci] : .none)
+                            var attrs = base(font, spacingAfter: 0)
+                            attrs[.paragraphStyle] = ps
+                            if ci < row.cells.count { appendInlines(row.cells[ci].inlines, attrs: attrs) }
+                            // Every cell is its own paragraph; the newline ends it.
+                            out.append(NSAttributedString(string: "\n", attributes: attrs))
                         }
-                        out.append(NSAttributedString(string: "\n"))
                     }
+                    // A thin paragraph outside the table, so what follows does not sit on
+                    // the bottom border.
+                    out.append(NSAttributedString(string: "\n", attributes: base(.systemFont(ofSize: 6), indent: indent, spacingAfter: 0)))
                 case .listItem:
                     render(b.children, indent: indent)
                 case .footnoteDefinition(let label):

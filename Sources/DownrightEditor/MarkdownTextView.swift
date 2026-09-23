@@ -167,6 +167,9 @@ public final class MarkdownTextView: NSTextView {
         let pb = NSPasteboard.general
         pb.clearContents()
         pb.writeObjects([rich])   // RTF + plain text
+        // HTML too: some apps (Slack, Google Docs, Notion) take it in preference to RTF,
+        // and a table survives the trip in either.
+        if let html = RichTextExporter.html(rich) { pb.setData(html, forType: .html) }
         pb.setString(markdown, forType: NSPasteboard.PasteboardType("net.daringfireball.markdown"))
     }
 
