@@ -6,7 +6,7 @@ public enum ColorToken: String, CaseIterable, Sendable {
     // Page
     case background, text, secondary, faint
     // Markdown
-    case accent, marker, cursor, listMarker, rule
+    case heading, accent, marker, cursor, listMarker, rule
     // Blocks
     case inlineCode, codeBlock, quote, quoteBar, frontmatter
     // Code syntax highlighting
@@ -20,7 +20,7 @@ public enum ColorToken: String, CaseIterable, Sendable {
     public var group: Group {
         switch self {
         case .background, .text, .secondary, .faint: return .page
-        case .accent, .marker, .cursor, .listMarker, .rule: return .markdown
+        case .heading, .accent, .marker, .cursor, .listMarker, .rule: return .markdown
         case .inlineCode, .codeBlock, .quote, .quoteBar, .frontmatter: return .blocks
         default: return .code
         }
@@ -33,6 +33,7 @@ public enum ColorToken: String, CaseIterable, Sendable {
         case .text: return "Text"
         case .secondary: return "Dimmed text"
         case .faint: return "Line numbers"
+        case .heading: return "Headings"
         case .accent: return "Links"
         case .marker: return "Syntax markers"
         case .cursor: return "Vim cursor"
@@ -121,9 +122,10 @@ public extension Palette {
         .text: hex("#2A241D"),                // ink
         .secondary: hex("#625A4B"),           // muted
         .faint: hex("#736A5A", alpha: 0.7),   // subtle
-        .accent: hex("#AC5534"),              // terracotta, deepened so it can carry text
-        .marker: hex("#2F897A"),              // teal
-        .cursor: hex("#2F897A", alpha: 0.35),
+        .heading: hex("#AC5534"),             // terracotta, deepened so it can carry text
+        .accent: hex("#4F6DA8"),              // slate blue: links stay recognisably links
+        .marker: hex("#AC5534"),
+        .cursor: hex("#AC5534", alpha: 0.35),
         .listMarker: hex("#736A5A"),
         .rule: hex("#736A5A", alpha: 0.3),
         .inlineCode: hex("#ECE2CF"),          // sunk
@@ -153,9 +155,10 @@ public extension Palette {
         .text: hex("#EDE4D2"),
         .secondary: hex("#A2957F"),
         .faint: hex("#918676", alpha: 0.7),
-        .accent: hex("#E08050"),
-        .marker: hex("#43A18E"),
-        .cursor: hex("#43A18E", alpha: 0.35),
+        .heading: hex("#E08050"),             // the accent lightens at night to letter the dark ground
+        .accent: hex("#7E9AD2"),
+        .marker: hex("#E08050"),
+        .cursor: hex("#E08050", alpha: 0.35),
         .listMarker: hex("#918676"),
         .rule: hex("#918676", alpha: 0.3),
         .inlineCode: hex("#241F18"),          // card: a lifted surface at night
@@ -340,6 +343,8 @@ public struct Theme: @unchecked Sendable, Equatable {
     public var secondaryColor: NSColor { palette[.secondary] }
     /// Line numbers and fold chevrons: quieter than `secondaryColor`.
     public var faintColor: NSColor { palette[.faint] }
+    /// Heading typography's colour — the accent, so a heading reads as part of the theme.
+    public var headingColor: NSColor { palette[.heading] }
     public var accentColor: NSColor { palette[.accent] }
     /// Revealed syntax markers (`**`, `#`, `>`).
     public var markerColor: NSColor { palette[.marker] }

@@ -60,6 +60,30 @@ final class ThemeTests: XCTestCase {
                        Palette.ink[.accent].hexString, "links take the accent")
     }
 
+    /// Headings take the accent rather than plain body ink, in the editor and in what
+    /// leaves it.
+    func testHeadingsTakeTheHeadingColor() {
+        let heading = render(Theme(palette: .paper), "# Title\n\nbody\n")
+        XCTAssertEqual((heading.attribute(.foregroundColor, at: 2, effectiveRange: nil) as? NSColor)?.hexString,
+                       Palette.paper[.heading].hexString)
+        let body = render(Theme(palette: .paper), "# Title\n\nbody\n", line: 2)
+        XCTAssertEqual((body.attribute(.foregroundColor, at: 0, effectiveRange: nil) as? NSColor)?.hexString,
+                       Palette.paper[.text].hexString, "body text is not tinted")
+        let rich = RichTextExporter.attributedString(markdown: "# Title\n", theme: Theme(palette: .ink))
+        XCTAssertEqual((rich.attribute(.foregroundColor, at: 0, effectiveRange: nil) as? NSColor)?.hexString,
+                       Palette.paper[.heading].hexString, "export stays on paper, headings included")
+    }
+
+    /// Markers and the vim cursor belong to the theme's accent family; links stay apart
+    /// so they still read as links.
+    func testAccentFamilies() {
+        for palette in [Palette.paper, Palette.ink] {
+            XCTAssertEqual(palette[.marker].hexString, palette[.heading].hexString, "markers share the heading accent")
+            XCTAssertEqual(palette[.cursor].hexString, palette[.heading].withAlphaComponent(0.35).hexString)
+            XCTAssertNotEqual(palette[.accent].hexString, palette[.marker].hexString, "links are their own colour")
+        }
+    }
+
     // MARK: - Custom
 
     func testCustomColorsApplyOverAPreset() {

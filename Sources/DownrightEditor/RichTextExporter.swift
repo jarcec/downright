@@ -90,7 +90,9 @@ public enum RichTextExporter {
             for b in blocks {
                 switch b.kind {
                 case .heading(let level), .setextHeading(let level, _):
-                    appendInlines(b.inlines, attrs: base(theme.headingFont(level), indent: indent, spacingAfter: 8))
+                    var attrs = base(theme.headingFont(level), indent: indent, spacingAfter: 8)
+                    attrs[.foregroundColor] = theme.headingColor
+                    appendInlines(b.inlines, attrs: attrs)
                     out.append(NSAttributedString(string: "\n"))
                 case .paragraph:
                     appendInlines(b.inlines, attrs: base(theme.bodyFont, indent: indent))

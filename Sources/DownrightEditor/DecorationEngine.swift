@@ -242,6 +242,7 @@ public final class DecorationEngine {
         case .heading(let level):
             d.role = .heading(level)
             d.styles.append(StyleRun(pr, .font(theme.headingFont(level))))
+            d.styles.append(StyleRun(pr, .foreground(theme.headingColor)))
             d.spacingBefore = level <= 2 ? theme.bodySize * 0.6 : theme.bodySize * 0.3
             for m in leaf.markerRanges where cr.contains(m.location) {
                 d.conceal.append(m)
@@ -256,6 +257,7 @@ public final class DecorationEngine {
                 d.markerStyles.append(StyleRun(underline, .foreground(theme.markerColor)))
             } else {
                 d.styles.append(StyleRun(pr, .font(theme.headingFont(level))))
+                d.styles.append(StyleRun(pr, .foreground(theme.headingColor)))
                 if li == firstLine { d.spacingBefore = theme.bodySize * 0.6 }
                 inlineStyles(leaf, cr: cr, into: &d)
             }

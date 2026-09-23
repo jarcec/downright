@@ -52,6 +52,9 @@ final class DocumentWindowController: NSWindowController, NSWindowDelegate {
                               styleMask: [.titled, .closable, .miniaturizable, .resizable],
                               backing: .buffered, defer: false)
         window.minSize = NSSize(width: 360, height: 240)
+        // The title bar takes the page's colour instead of its own white strip; the
+        // document name, traffic lights and tab bar stay where they are.
+        window.titlebarAppearsTransparent = true
         window.tabbingMode = .preferred
         window.tabbingIdentifier = "DownrightDocument"
         if saved == nil { window.center() }

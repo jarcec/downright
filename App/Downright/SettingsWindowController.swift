@@ -11,25 +11,28 @@ struct SettingsView: View {
     var body: some View {
         Form {
             Section("Appearance") {
-                Picker("Mode", selection: appearanceBinding) {
-                    ForEach(Appearance.allCases) { Text($0.title).tag($0) }
+                HStack {
+                    Text("Mode")
+                    Spacer()
+                    ForEach(Appearance.allCases) { mode in
+                        ModeButton(appearance: mode, selected: settings.appearance == mode, colors: colors) {
+                            appearanceBinding.wrappedValue = mode
+                        }
+                    }
                 }
-                .pickerStyle(.segmented)
-                Picker("Light theme", selection: choiceBinding(.light)) {
-                    ForEach(ThemeChoice.allCases) { Text($0.title).tag($0) }
-                }
-                Picker("Dark theme", selection: choiceBinding(.dark)) {
-                    ForEach(ThemeChoice.allCases) { Text($0.title).tag($0) }
-                }
+                .padding(.vertical, 2)
+                slotRow(.light)
+                slotRow(.dark)
                 Text(appearanceDescription)
                     .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(colors.secondary)
             }
+            .listRowBackground(colors.surface)
             if !customSlots.isEmpty {
-                Section("Custom colours") {
+                Section("Custom colours \u{2014} \(slot.title)") {
                     if customSlots.count > 1 {
                         Picker("Editing", selection: $editingSlot) {
-                            ForEach(ThemeSlot.allCases) { Text($0.title).tag($0) }
+                            ForEach(ThemeSlot.allCases) { Text("\(Image(systemName: $0.symbol))  \($0.title)").tag($0) }
                         }
                         .pickerStyle(.segmented)
                     }
@@ -105,9 +108,39 @@ struct SettingsView: View {
             }
         }
         .formStyle(.grouped)
+        .themedPanel(colors)
         // The custom theme's colour wells make this taller than a screen if it sizes to
         // its content, so the window keeps a height of its own and the form scrolls.
-        .frame(width: 460, height: 620)
+        .frame(width: 480, height: 640)
+    }
+
+    private var colors: ThemeColors { ThemeColors(Settings.theme.palette) }
+
+    /// One slot and the three themes that can fill it, each showing its own colours.
+    private func slotRow(_ slot: ThemeSlot) -> some View {
+        HStack(alignment: .top) {
+            Text("\(slot.title) theme")
+            Spacer()
+            ForEach(ThemeChoice.allCases) { choice in
+                ThemeCard(choice: choice,
+                          palette: preview(choice, in: slot),
+                          selected: Settings.selection.choice(for: slot) == choice,
+                          accent: colors.heading,
+                          rule: colors.rule) {
+                    choiceBinding(slot).wrappedValue = choice
+                }
+            }
+        }
+        .padding(.vertical, 2)
+    }
+
+    /// What a card shows: the built-in itself, or the slot's own colours for Custom.
+    private func preview(_ choice: ThemeChoice, in slot: ThemeSlot) -> Palette {
+        switch choice {
+        case .paper: return .paper
+        case .ink: return .ink
+        case .custom: return Settings.customPalette(for: slot)
+        }
     }
 
     private var appearanceDescription: String {
@@ -176,15 +209,26 @@ final class SettingsWindowController: NSWindowController {
         let window = NSWindow(contentViewController: hosting)
         window.title = "Settings"
         window.styleMask = [.titled, .closable]
+        window.titlebarAppearsTransparent = true
         window.isReleasedWhenClosed = false
         window.setFrameAutosaveName("Settings")
         super.init(window: window)
+        NotificationCenter.default.addObserver(self, selector: #selector(themeChanged), name: Settings.didChange, object: nil)
     }
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError() }
 
+    @objc private func themeChanged() { applyTheme() }
+
+    /// The panel wears the theme, like the pages it configures.
+    private func applyTheme() {
+        window?.backgroundColor = Settings.theme.backgroundColor
+        window?.appearance = Settings.selection.chrome
+    }
+
     func show() {
+        applyTheme()
         window?.center()
         showWindow(nil)
         window?.makeKeyAndOrderFront(nil)

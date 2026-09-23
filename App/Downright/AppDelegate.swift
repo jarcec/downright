@@ -16,6 +16,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                                                      forEventClass: AEEventClass(kInternetEventClass), andEventID: AEEventID(kAEGetURL))
         NotificationCenter.default.addObserver(self, selector: #selector(defaultsChanged(_:)), name: Settings.didChange, object: nil)
         NSApp.mainMenu = MainMenu.build()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { [weak self] in self?.openDebugPanel() }
         DebugLog.write("willFinishLaunching: lineNumbers=\(Settings.showLineNumbers) outline=\(Settings.showOutline)")
     }
 
@@ -27,6 +28,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 
     @objc func showSettings(_ sender: Any?) {
         SettingsWindowController.shared.show()
+    }
+
+    @objc func showAbout(_ sender: Any?) {
+        AboutWindowController.shared.show()
+    }
+
+    /// Screenshot hook, like DOWNRIGHT_DEBUG_MODE: open a panel on launch so it can be
+    /// captured without driving the menus of whatever copy happens to be frontmost.
+    func openDebugPanel() {
+        switch ProcessInfo.processInfo.environment["DOWNRIGHT_DEBUG_PANEL"] {
+        case "settings": showSettings(nil)
+        case "about": showAbout(nil)
+        default: break
+        }
     }
 
     @objc func toggleLineNumbers(_ sender: Any?) {
@@ -163,7 +178,7 @@ enum MainMenu {
         // Application
         let appName = ProcessInfo.processInfo.processName
         let app = NSMenu(title: appName)
-        app.addItem(withTitle: "About \(appName)", action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)), keyEquivalent: "")
+        app.addItem(withTitle: "About \(appName)", action: #selector(AppDelegate.showAbout(_:)), keyEquivalent: "")
         app.addItem(.separator())
         app.addItem(withTitle: "Settings…", action: #selector(AppDelegate.showSettings(_:)), keyEquivalent: ",")
         app.addItem(withTitle: "Install Command Line Tool…", action: #selector(AppDelegate.installCommandLineTool(_:)), keyEquivalent: "")

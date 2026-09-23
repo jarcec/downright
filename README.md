@@ -39,9 +39,11 @@ Appearance is a mode — **System**, **Light** or **Dark** — plus a theme for 
 The themes are **Paper**, **Ink** and **Custom**, and either slot can hold any of them, so System
 means "Paper in the light, Ink after dark" only because that is the default. Paper and Ink are one
 warm palette — a cream page with ink-brown text, folded over on itself for night — borrowed from
-BoardGamePad's "Tabletop, on Paper". Custom gives that slot its own colour per token, set in
-Settings or as `colors.light.<name>` / `colors.dark.<name>` in the file; anything left out comes
-from the slot's own ground.
+BoardGamePad's "Tabletop, on Paper": terracotta carries headings, syntax markers and the vim
+cursor, links keep the palette's slate blue. Custom gives that slot its own colour per token, set
+in Settings or as `colors.light.<name>` / `colors.dark.<name>` in the file; anything left out comes
+from the slot's own ground. The theme dresses the whole app — the title bar, Settings and About
+included.
 ## Icon
 
 `App/Icon/render-icon.swift` draws the icon with CoreGraphics; `App/Downright/Resources/AppIcon.icns`
