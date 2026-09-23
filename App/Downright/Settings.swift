@@ -20,12 +20,15 @@ final class Settings: ObservableObject {
     @Published var showLineNumbers = true { didSet { changed() } }
     @Published var showOutline = true { didSet { changed() } }
     @Published var outlineCollapsed = false { didSet { changed() } }
-    /// Which palette the editor draws with.
-    @Published var themePreset: ThemePreset = .auto { didSet { changed() } }
-    /// The custom theme's colours, `ColorToken.rawValue` → `#RRGGBBAA`. Only meaningful
-    /// while `themePreset` is `.custom`; kept on file so switching away and back is
-    /// lossless.
-    @Published var customColors: [String: String] = [:] { didSet { changed() } }
+    /// Which theme slot the app draws with: a fixed one, or macOS's choice.
+    @Published var appearance: Appearance = .system { didSet { changed() } }
+    /// What fills each slot.
+    @Published var lightTheme: ThemeChoice = .paper { didSet { changed() } }
+    @Published var darkTheme: ThemeChoice = .ink { didSet { changed() } }
+    /// The Custom theme's colours per slot, `ColorToken.rawValue` → `#RRGGBBAA`. Kept on
+    /// file whatever the slots are set to, so switching away and back is lossless.
+    @Published var customLight: [String: String] = [:] { didSet { changed() } }
+    @Published var customDark: [String: String] = [:] { didSet { changed() } }
     @Published var vimMode = false { didSet { changed() } }
     /// ⌘C copies formatted text (⌘⇧C then copies Markdown source) instead of the reverse.
     @Published var copyRichText = false { didSet { changed() } }
@@ -38,28 +41,41 @@ final class Settings: ObservableObject {
     static var showLineNumbers: Bool { get { shared.showLineNumbers } set { shared.showLineNumbers = newValue } }
     static var showOutline: Bool { get { shared.showOutline } set { shared.showOutline = newValue } }
     static var outlineCollapsed: Bool { get { shared.outlineCollapsed } set { shared.outlineCollapsed = newValue } }
-    static var themePreset: ThemePreset { get { shared.themePreset } set { shared.themePreset = newValue } }
+    static var appearance: Appearance { get { shared.appearance } set { shared.appearance = newValue } }
     static var vimMode: Bool { get { shared.vimMode } set { shared.vimMode = newValue } }
     static var copyRichText: Bool { get { shared.copyRichText } set { shared.copyRichText = newValue } }
     static var fontSize: Double { get { shared.fontSize } set { shared.fontSize = min(max(newValue, 9), 40) } }
     static var maxContentWidth: Double { get { shared.maxContentWidth } set { shared.maxContentWidth = newValue } }
 
-    /// The palette in force: a preset, or the user's own colours.
-    static var palette: Palette {
-        shared.themePreset == .custom ? Palette.custom(shared.customColors) : shared.themePreset.palette
+    /// The colour selection as a whole.
+    static var selection: ThemeSelection {
+        ThemeSelection(appearance: shared.appearance, light: shared.lightTheme, dark: shared.darkTheme,
+                       customLight: shared.customLight, customDark: shared.customDark)
     }
 
     /// The editor theme reflecting the current settings.
     static var theme: Theme {
-        var t = Theme(preset: shared.themePreset, palette: palette)
+        var t = Theme(selection)
         t.bodySize = CGFloat(shared.fontSize)
         return t
     }
 
-    /// Seed the custom theme from a preset, so customising starts from something whole
-    /// rather than from a blank set of colour wells.
-    static func seedCustomColors(from preset: ThemePreset) {
-        shared.customColors = preset.palette.hexValues
+    /// The user's own colours for a slot, complete: what the colour wells show.
+    static func customPalette(for slot: ThemeSlot) -> Palette {
+        Palette.custom(shared.custom(for: slot), base: slot.ground)
+    }
+
+    func custom(for slot: ThemeSlot) -> [String: String] { slot == .light ? customLight : customDark }
+
+    static func setCustom(_ hex: String, token: ColorToken, slot: ThemeSlot) {
+        if slot == .light { shared.customLight[token.rawValue] = hex } else { shared.customDark[token.rawValue] = hex }
+    }
+
+    /// Fill a slot's custom colours from a built-in, so customising starts from something
+    /// whole rather than from a blank set of wells.
+    static func seedCustomColors(_ slot: ThemeSlot, from choice: ThemeChoice) {
+        let source: Palette = choice == .ink ? .ink : .paper
+        if slot == .light { shared.customLight = source.hexValues } else { shared.customDark = source.hexValues }
     }
 
     /// Make Downright the default app for Markdown files (the UTIs behind .md/.markdown).
@@ -80,20 +96,17 @@ final class Settings: ObservableObject {
         }
     }
 
-    /// Match the app's own chrome — title bar, sheets, scrollers — to the theme. Auto
-    /// follows the system; the rest follow their background, custom colours included.
+    /// Match the app's own chrome — title bar, sheets, scrollers — to the page it frames.
     static func applyAppearance() {
-        switch shared.themePreset {
-        case .auto: NSApp.appearance = nil
-        default: NSApp.appearance = NSAppearance(named: palette.isDark ? .darkAqua : .aqua)
-        }
+        NSApp.appearance = selection.chrome
     }
 
     // MARK: - File
 
-    /// Keys earlier versions wrote, dropped on the next save. `appearance` is read once
-    /// on the way out, in `apply(_:)`, to pick the theme that matches it.
-    private static let retiredKeys: Set<String> = ["appearance", "marker_color", "cursor_color"]
+    /// Keys earlier versions wrote, dropped on the next save. `theme` and the flat
+    /// `colors.<name>` are read once on the way out, in `migrateSingleTheme(_:)`.
+    private static let retiredKeys: Set<String> = Set(["theme", "marker_color", "cursor_color"]
+        + ColorToken.allCases.map { "colors.\($0.rawValue)" })
 
     let fileURL: URL
     private var suppressChanges = false
@@ -107,11 +120,13 @@ final class Settings: ObservableObject {
     # The app rewrites values in place when you change them in Settings; comments and
     # extra keys are kept, so this file is safe to manage with chezmoi.
     #
-    # theme: "auto" (Paper by day, Ink by night) | "paper" | "ink" | "custom"
-    # colors.<name>: the custom theme's colours, "#RRGGBB" or "#RRGGBBAA" — only used
-    #   when theme = "custom". Anything you leave out comes from Paper, or from Ink when
-    #   your background is dark. Names: background, text, secondary, faint, accent, marker,
-    #   cursor, listMarker, rule, inlineCode, codeBlock, quote, quoteBar, frontmatter and
+    # appearance: "system" (follow macOS) | "light" | "dark"
+    # light_theme / dark_theme: what fills each slot — "paper" | "ink" | "custom"
+    # colors.light.<name> / colors.dark.<name>: the Custom theme's colours for that slot,
+    #   "#RRGGBB" or "#RRGGBBAA". Anything you leave out comes from that slot's own ground
+    #   (Paper for light, Ink for dark). Names: background, text, secondary, faint, accent,
+    #   marker, cursor, listMarker, rule, inlineCode, codeBlock, quote, quoteBar,
+    #   frontmatter and
     #   code<Keyword|Type|String|Comment|Number|Key|Variable|Added|Removed|Meta|Tag|Attribute>.
     # copy_rich_text: when true, ⌘C copies formatted text and ⌘⇧C copies Markdown source
     # font_size: body text size in points (⌘+ / ⌘- / ⌘0 change it too)
@@ -166,24 +181,47 @@ final class Settings: ObservableObject {
         if case .bool(let b)? = values["line_numbers"] { showLineNumbers = b }
         if case .bool(let b)? = values["outline"] { showOutline = b }
         if case .bool(let b)? = values["outline_collapsed"] { outlineCollapsed = b }
-        if case .string(let s)? = values["theme"], let t = ThemePreset(rawValue: s) {
-            themePreset = t
-        } else if case .string(let s)? = values["appearance"] {
-            // A file from before themes: its light/dark choice picks the matching palette.
-            themePreset = s == "light" ? .paper : s == "dark" ? .ink : .auto
-        }
+        if case .string(let s)? = values["appearance"], let a = Appearance(rawValue: s) { appearance = a }
+        if case .string(let s)? = values["light_theme"], let c = ThemeChoice(rawValue: s) { lightTheme = c }
+        if case .string(let s)? = values["dark_theme"], let c = ThemeChoice(rawValue: s) { darkTheme = c }
         if case .bool(let b)? = values["vim_mode"] { vimMode = b }
         if case .bool(let b)? = values["copy_rich_text"] { copyRichText = b }
         if case .int(let n)? = values["font_size"] { fontSize = Double(n) }
         if case .int(let n)? = values["max_content_width"] { maxContentWidth = Double(n) }
-        var colors: [String: String] = [:]
+        customLight = Self.colors(in: values, prefix: "colors.light.")
+        customDark = Self.colors(in: values, prefix: "colors.dark.")
+        migrateSingleTheme(values)
+        NotificationCenter.default.post(name: Self.didChange, object: self)
+    }
+
+    /// The `#RRGGBBAA` values under a `colors.<slot>.` prefix, ignoring anything that is
+    /// not a colour or not a token this version knows.
+    private static func colors(in values: [String: TOMLValue], prefix: String) -> [String: String] {
+        var out: [String: String] = [:]
         for token in ColorToken.allCases {
-            if case .string(let hex)? = values["colors.\(token.rawValue)"], Theme.color(hex: hex) != nil {
-                colors[token.rawValue] = hex
+            if case .string(let hex)? = values[prefix + token.rawValue], Theme.color(hex: hex) != nil {
+                out[token.rawValue] = hex
             }
         }
-        customColors = colors
-        NotificationCenter.default.post(name: Self.didChange, object: self)
+        return out
+    }
+
+    /// A file from the version that had one theme rather than two slots: `theme` picks
+    /// the appearance and fills the matching slot, and its flat `colors.<name>` become
+    /// that slot's custom set.
+    private func migrateSingleTheme(_ values: [String: TOMLValue]) {
+        guard values["light_theme"] == nil, values["dark_theme"] == nil,
+              case .string(let theme)? = values["theme"] else { return }
+        let flat = Self.colors(in: values, prefix: "colors.")
+        switch theme {
+        case "paper": appearance = .light; lightTheme = .paper
+        case "ink": appearance = .dark; darkTheme = .ink
+        case "custom":
+            let dark = Palette.custom(flat).isDark
+            appearance = dark ? .dark : .light
+            if dark { darkTheme = .custom; customDark = flat } else { lightTheme = .custom; customLight = flat }
+        default: appearance = .system   // "auto"
+        }
     }
 
     private var values: [String: TOMLValue] {
@@ -191,14 +229,17 @@ final class Settings: ObservableObject {
             "line_numbers": .bool(showLineNumbers),
             "outline": .bool(showOutline),
             "outline_collapsed": .bool(outlineCollapsed),
-            "theme": .string(themePreset.rawValue),
+            "appearance": .string(appearance.rawValue),
+            "light_theme": .string(lightTheme.rawValue),
+            "dark_theme": .string(darkTheme.rawValue),
             "vim_mode": .bool(vimMode),
             "copy_rich_text": .bool(copyRichText),
             "font_size": .int(Int(fontSize.rounded())),
             "max_content_width": .int(Int(maxContentWidth.rounded())),
         ]
-        // The custom palette is written only once there is one, so the presets can evolve.
-        for (name, hex) in customColors { v["colors.\(name)"] = .string(hex) }
+        // Custom colours are written only once there are some, so the built-ins can evolve.
+        for (name, hex) in customLight { v["colors.light.\(name)"] = .string(hex) }
+        for (name, hex) in customDark { v["colors.dark.\(name)"] = .string(hex) }
         return v
     }
 

@@ -177,27 +177,33 @@ public extension Palette {
         .codeAttribute: hex("#C08A62"),
     ])
 
-    /// A custom palette: the user's colours over whichever built-in their background is
-    /// closer to. Basing it on the ground rather than always on Paper is what makes a
-    /// hand-edited file that names only a dark background come out legible — its code
-    /// blocks and quotes are Ink's, not cream boxes under pale text.
-    static func custom(_ hexValues: [String: String]) -> Palette {
-        let background = hexValues[ColorToken.background.rawValue].flatMap { Theme.color(hex: $0) }
-        let wantsDark = background.map { Palette([.background: $0]).isDark } ?? false
-        return (wantsDark ? Palette.ink : Palette.paper).applying(hexValues: hexValues)
+    /// A custom palette: the user's colours over the ground of the slot it fills — Paper
+    /// for the light one, Ink for the dark one — so a file that names only a background
+    /// still comes out legible instead of cream boxes under pale text. A background that
+    /// disagrees with its slot wins: the other ground is used.
+    static func custom(_ hexValues: [String: String], base: Palette = .paper) -> Palette {
+        var ground = base
+        if let background = hexValues[ColorToken.background.rawValue].flatMap({ Theme.color(hex: $0) }),
+           Palette([.background: background]).isDark != base.isDark {
+            ground = base.isDark ? .paper : .ink
+        }
+        return ground.applying(hexValues: hexValues)
     }
 
-    /// Paper by day, Ink by night: every token is a dynamic colour, so the window follows
-    /// the system appearance without anything being rebuilt.
-    static let auto: Palette = {
+    /// One palette of dynamic colours: `light` by day, `dark` by night. The window then
+    /// follows the system appearance without anything being rebuilt.
+    static func dynamic(light: Palette, dark: Palette) -> Palette {
         var out: [ColorToken: NSColor] = [:]
         for token in ColorToken.allCases {
             out[token] = NSColor(name: nil) { appearance in
-                appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua ? Palette.ink[token] : Palette.paper[token]
+                appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua ? dark[token] : light[token]
             }
         }
         return Palette(out)
-    }()
+    }
+
+    /// The default pairing: Paper by day, Ink by night.
+    static let system = Palette.dynamic(light: .paper, dark: .ink)
 
     private static func hex(_ s: String, alpha: CGFloat = 1) -> NSColor {
         let c = Theme.color(hex: s) ?? .labelColor
@@ -205,29 +211,96 @@ public extension Palette {
     }
 }
 
-/// Which palette the editor uses. `custom` is the user's own, stored per colour.
-public enum ThemePreset: String, CaseIterable, Sendable, Identifiable {
-    case auto, paper, ink, custom
+/// Which of the two theme slots the app draws with.
+public enum Appearance: String, CaseIterable, Sendable, Identifiable {
+    /// Follow macOS: the light slot by day, the dark one by night.
+    case system, light, dark
 
     public var id: String { rawValue }
 
     public var title: String {
         switch self {
-        case .auto: return "Auto"
+        case .system: return "System"
+        case .light: return "Light"
+        case .dark: return "Dark"
+        }
+    }
+}
+
+/// The two slots a theme can fill.
+public enum ThemeSlot: String, CaseIterable, Sendable, Identifiable {
+    case light, dark
+
+    public var id: String { rawValue }
+    public var title: String { self == .light ? "Light" : "Dark" }
+    /// What a custom palette in this slot builds on when it leaves colours out.
+    public var ground: Palette { self == .light ? .paper : .ink }
+}
+
+/// A theme that can fill either slot. `custom` is the slot's own set of colours.
+public enum ThemeChoice: String, CaseIterable, Sendable, Identifiable {
+    case paper, ink, custom
+
+    public var id: String { rawValue }
+
+    public var title: String {
+        switch self {
         case .paper: return "Paper"
         case .ink: return "Ink"
         case .custom: return "Custom"
         }
     }
+}
 
-    /// The palette this preset draws with; `custom` falls back to Paper until the user's
-    /// own colours are applied over it.
-    public var palette: Palette {
-        switch self {
-        case .auto: return .auto
+/// The whole colour selection: which slot is in force, what fills each one, and the
+/// user's own colours for the slots set to Custom.
+public struct ThemeSelection: Equatable, Sendable {
+    public var appearance: Appearance
+    public var light: ThemeChoice
+    public var dark: ThemeChoice
+    /// `ColorToken.rawValue` → `#RRGGBBAA`, per slot. Anything missing comes from the
+    /// slot's ground, so a partial set is still a whole palette.
+    public var customLight: [String: String]
+    public var customDark: [String: String]
+
+    public init(appearance: Appearance = .system, light: ThemeChoice = .paper, dark: ThemeChoice = .ink,
+                customLight: [String: String] = [:], customDark: [String: String] = [:]) {
+        self.appearance = appearance
+        self.light = light
+        self.dark = dark
+        self.customLight = customLight
+        self.customDark = customDark
+    }
+
+    public func choice(for slot: ThemeSlot) -> ThemeChoice { slot == .light ? light : dark }
+    public func custom(for slot: ThemeSlot) -> [String: String] { slot == .light ? customLight : customDark }
+
+    /// What a slot draws with, whichever slot is actually in force.
+    public func palette(for slot: ThemeSlot) -> Palette {
+        switch choice(for: slot) {
         case .paper: return .paper
         case .ink: return .ink
-        case .custom: return .paper
+        case .custom: return .custom(custom(for: slot), base: slot.ground)
+        }
+    }
+
+    /// The palette in force. In System it is one set of dynamic colours, so the window
+    /// follows macOS without anything being rebuilt.
+    public var palette: Palette {
+        switch appearance {
+        case .light: return palette(for: .light)
+        case .dark: return palette(for: .dark)
+        case .system: return .dynamic(light: palette(for: .light), dark: palette(for: .dark))
+        }
+    }
+
+    /// The appearance the app's own chrome runs in: whatever the page it frames is. Nil
+    /// means follow macOS, which is what System's dynamic palette does too.
+    public var chrome: NSAppearance? {
+        switch appearance {
+        case .system: return nil
+        case .light: return NSAppearance(named: palette(for: .light).isDark ? .darkAqua : .aqua)
+        case .dark: return NSAppearance(named: palette(for: .dark).isDark ? .darkAqua : .aqua)
         }
     }
 }
@@ -237,21 +310,15 @@ public struct Theme: @unchecked Sendable, Equatable {
     public var bodySize: CGFloat = 15
     public var lineHeightMultiple: CGFloat = 1.3
     public var quoteIndent: CGFloat = 18
-    /// Which theme this is — the settings UI's selection, carried along so the app can
-    /// tell a preset from the user's own colours.
-    public var preset: ThemePreset = .auto
-    public var palette: Palette = .auto
+    public var palette: Palette = .system
 
     public init() {}
-
-    public init(preset: ThemePreset, palette: Palette? = nil) {
-        self.preset = preset
-        self.palette = palette ?? preset.palette
-    }
+    public init(palette: Palette) { self.palette = palette }
+    public init(_ selection: ThemeSelection) { self.palette = selection.palette }
 
     public static func == (a: Theme, b: Theme) -> Bool {
         a.bodySize == b.bodySize && a.lineHeightMultiple == b.lineHeightMultiple
-            && a.quoteIndent == b.quoteIndent && a.preset == b.preset && a.palette == b.palette
+            && a.quoteIndent == b.quoteIndent && a.palette == b.palette
     }
 
     // MARK: - Fonts
@@ -311,7 +378,6 @@ public struct Theme: @unchecked Sendable, Equatable {
     /// palette is the editor's business; what leaves the app has to read on white.
     public var forExport: Theme {
         var t = self
-        t.preset = .paper
         t.palette = .paper
         return t
     }

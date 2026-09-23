@@ -35,11 +35,13 @@ downright -n                 # activate / new untitled document
 
 Settings are stored in `~/.config/downright.toml` and can be edited by hand or managed with chezmoi; changes apply live.
 
-Four themes: **Auto** (Paper by day, Ink by night), **Paper**, **Ink** and **Custom**. Paper and Ink
-are one warm palette — a cream page with ink-brown text, folded over on itself for night — borrowed
-from BoardGamePad's "Tabletop, on Paper". Custom sets each colour itself, in Settings or as
-`colors.<name>` keys in the file; anything left out comes from Paper, or from Ink when the custom
-background is dark.
+Appearance is a mode — **System**, **Light** or **Dark** — plus a theme for each of the two slots.
+The themes are **Paper**, **Ink** and **Custom**, and either slot can hold any of them, so System
+means "Paper in the light, Ink after dark" only because that is the default. Paper and Ink are one
+warm palette — a cream page with ink-brown text, folded over on itself for night — borrowed from
+BoardGamePad's "Tabletop, on Paper". Custom gives that slot its own colour per token, set in
+Settings or as `colors.light.<name>` / `colors.dark.<name>` in the file; anything left out comes
+from the slot's own ground.
 ## Icon
 
 `App/Icon/render-icon.swift` draws the icon with CoreGraphics; `App/Downright/Resources/AppIcon.icns`

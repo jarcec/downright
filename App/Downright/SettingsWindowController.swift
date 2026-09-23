@@ -6,23 +6,38 @@ struct SettingsView: View {
     @ObservedObject var settings = Settings.shared
     @State private var defaultStatus = ""
     @State private var expanded: Set<ColorToken.Group> = [.page]
+    @State private var editingSlot: ThemeSlot = .light
 
     var body: some View {
         Form {
-            Section("Theme") {
-                Picker("Theme", selection: themeBinding) {
-                    ForEach(ThemePreset.allCases) { Text($0.title).tag($0) }
+            Section("Appearance") {
+                Picker("Mode", selection: appearanceBinding) {
+                    ForEach(Appearance.allCases) { Text($0.title).tag($0) }
                 }
                 .pickerStyle(.segmented)
-                Text(themeDescription)
+                Picker("Light theme", selection: choiceBinding(.light)) {
+                    ForEach(ThemeChoice.allCases) { Text($0.title).tag($0) }
+                }
+                Picker("Dark theme", selection: choiceBinding(.dark)) {
+                    ForEach(ThemeChoice.allCases) { Text($0.title).tag($0) }
+                }
+                Text(appearanceDescription)
                     .font(.caption)
                     .foregroundStyle(.secondary)
-                if settings.themePreset == .custom {
+            }
+            if !customSlots.isEmpty {
+                Section("Custom colours") {
+                    if customSlots.count > 1 {
+                        Picker("Editing", selection: $editingSlot) {
+                            ForEach(ThemeSlot.allCases) { Text($0.title).tag($0) }
+                        }
+                        .pickerStyle(.segmented)
+                    }
                     HStack {
                         Text("Start over from")
                         Spacer()
-                        Button("Paper") { Settings.seedCustomColors(from: .paper) }.controlSize(.small)
-                        Button("Ink") { Settings.seedCustomColors(from: .ink) }.controlSize(.small)
+                        Button("Paper") { Settings.seedCustomColors(slot, from: .paper) }.controlSize(.small)
+                        Button("Ink") { Settings.seedCustomColors(slot, from: .ink) }.controlSize(.small)
                     }
                     ForEach(ColorToken.Group.allCases, id: \.self) { group in
                         DisclosureGroup(group.rawValue, isExpanded: expansion(of: group)) {
@@ -95,33 +110,51 @@ struct SettingsView: View {
         .frame(width: 460, height: 620)
     }
 
-    private var themeDescription: String {
-        switch settings.themePreset {
-        case .auto: return "Paper in daylight, Ink at night, following macOS."
-        case .paper: return "A warm cream page with ink-brown text, always light."
-        case .ink: return "The same palette at night: a warm dark ground, never flat grey."
-        case .custom: return "Your own colours. Pick a starting point, then change what you like — the rest of the app follows the background."
+    private var appearanceDescription: String {
+        let light = settings.lightTheme.title, dark = settings.darkTheme.title
+        switch settings.appearance {
+        case .system: return "Follows macOS: \(light) in the light, \(dark) after dark."
+        case .light: return "\(light), whatever macOS is set to."
+        case .dark: return "\(dark), whatever macOS is set to."
         }
     }
 
-    /// Switching to Custom seeds the wells from whatever is on screen now, so there is
-    /// something whole to edit rather than a blank set.
-    private var themeBinding: Binding<ThemePreset> {
+    /// The slots set to Custom — the ones with colours to edit.
+    private var customSlots: [ThemeSlot] {
+        ThemeSlot.allCases.filter { Settings.selection.choice(for: $0) == .custom }
+    }
+
+    /// The slot the colour wells edit: the one being customised, or the chosen one when
+    /// both are.
+    private var slot: ThemeSlot { customSlots.contains(editingSlot) ? editingSlot : (customSlots.first ?? .light) }
+
+    private var appearanceBinding: Binding<Appearance> {
+        Binding(get: { settings.appearance },
+                set: { settings.appearance = $0; Settings.applyAppearance() })
+    }
+
+    /// Choosing Custom for a slot seeds its wells from what that slot showed a moment
+    /// ago, so there is something whole to edit rather than a blank set.
+    private func choiceBinding(_ slot: ThemeSlot) -> Binding<ThemeChoice> {
         Binding(
-            get: { settings.themePreset },
+            get: { Settings.selection.choice(for: slot) },
             set: { new in
-                if new == .custom, settings.customColors.isEmpty {
-                    Settings.seedCustomColors(from: settings.themePreset == .custom ? .paper : settings.themePreset)
+                let previous = Settings.selection.choice(for: slot)
+                if new == .custom, settings.custom(for: slot).isEmpty {
+                    Settings.seedCustomColors(slot, from: previous == .custom ? (slot == .dark ? .ink : .paper) : previous)
                 }
-                settings.themePreset = new
+                if slot == .light { settings.lightTheme = new } else { settings.darkTheme = new }
+                editingSlot = slot
+                Settings.applyAppearance()
             }
         )
     }
 
     private func colorBinding(_ token: ColorToken) -> Binding<Color> {
-        Binding(
-            get: { Color(nsColor: Settings.palette[token]) },
-            set: { settings.customColors[token.rawValue] = NSColor($0).hexString }
+        let slot = slot
+        return Binding(
+            get: { Color(nsColor: Settings.customPalette(for: slot)[token]) },
+            set: { Settings.setCustom(NSColor($0).hexString, token: token, slot: slot) }
         )
     }
 
