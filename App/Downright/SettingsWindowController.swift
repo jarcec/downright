@@ -70,7 +70,8 @@ struct SettingsView: View {
             }
             Section("Copy") {
                 Toggle("⌘C copies formatted text", isOn: $settings.copyRichText)
-                Text(settings.copyRichText ? "⌘⇧C copies the Markdown source." : "⌘C copies the Markdown source; ⌘⇧C copies formatted text for pasting into mail, Slack or documents.")
+                Text((settings.copyRichText ? "⌘⇧C copies the Markdown source." : "⌘C copies the Markdown source; ⌘⇧C copies formatted text for pasting into mail, Slack or documents.")
+                     + " View mode always copies formatted text, and the right-click menu names both.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }

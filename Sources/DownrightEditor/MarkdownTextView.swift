@@ -141,14 +141,23 @@ public final class MarkdownTextView: NSTextView {
     /// When true, plain ⌘C copies formatted text and the alternate command copies source.
     public var copiesRichTextByDefault = false
 
+    /// What plain ⌘C copies here. View mode always copies formatted text: the source is
+    /// not even on screen there, and the reason to select in a document you cannot edit
+    /// is to put it somewhere else.
+    public var copiesRichText: Bool { copiesRichTextByDefault || controller?.mode == .view }
+
     public override func copy(_ sender: Any?) {
-        if copiesRichTextByDefault { copyRichText() } else { super.copy(sender) }
+        if copiesRichText { copyRichText() } else { super.copy(sender) }
     }
 
     /// ⌘⇧C: copy in whichever format ⌘C does *not* use.
     @objc public func copyAlternate(_ sender: Any?) {
-        if copiesRichTextByDefault { super.copy(sender) } else { copyRichText() }
+        if copiesRichText { super.copy(sender) } else { copyRichText() }
     }
+
+    /// Context-menu commands, which say what they do rather than depending on the setting.
+    @objc public func copyAsRichText(_ sender: Any?) { copyRichText() }
+    @objc public func copyAsMarkdown(_ sender: Any?) { super.copy(sender) }
 
     private func copyRichText() {
         let sel = selectedRange()
@@ -361,20 +370,25 @@ public final class MarkdownTextView: NSTextView {
         let sel = selectedRange()
         guard sel.length > 0,
               !(string as NSString).substring(with: sel).trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return menu }
-        let items: [(String, Selector)] = [
-            ("Insert Link", #selector(insertLink(_:))),
-            ("Bold", #selector(toggleBold(_:))),
-            ("Italic", #selector(toggleItalic(_:))),
-            ("Inline Code", #selector(toggleInlineCode(_:))),
-        ]
         var index = 0
-        for (title, action) in items {
-            let item = NSMenuItem(title: title, action: action, keyEquivalent: "")
-            item.target = self
-            menu.insertItem(item, at: index)
+        func insert(_ entries: [(String, Selector)]) {
+            for (title, action) in entries {
+                let item = NSMenuItem(title: title, action: action, keyEquivalent: "")
+                item.target = self
+                menu.insertItem(item, at: index)
+                index += 1
+            }
+            menu.insertItem(.separator(), at: index)
             index += 1
         }
-        menu.insertItem(.separator(), at: index)
+        // Both formats, named: the ⌘C default depends on the mode and the setting, and a
+        // menu should not make anyone work that out.
+        insert([("Copy as Rich Text", #selector(copyAsRichText(_:))),
+                ("Copy as Markdown", #selector(copyAsMarkdown(_:)))])
+        insert([("Insert Link", #selector(insertLink(_:))),
+                ("Bold", #selector(toggleBold(_:))),
+                ("Italic", #selector(toggleItalic(_:))),
+                ("Inline Code", #selector(toggleInlineCode(_:)))])
         return menu
     }
 
@@ -467,7 +481,9 @@ public final class MarkdownTextView: NSTextView {
             if let mi = item as? NSMenuItem { mi.state = controller.tableColumnAlignment(at: tableOffset) == align.2 ? .on : .off }
             return isEditable && controller.canPerformTableOperation(.align(align.2), at: tableOffset)
         case #selector(copyAlternate(_:)):
-            if let mi = item as? NSMenuItem { mi.title = copiesRichTextByDefault ? "Copy as Markdown" : "Copy as Rich Text" }
+            if let mi = item as? NSMenuItem { mi.title = copiesRichText ? "Copy as Markdown" : "Copy as Rich Text" }
+            return selectedRange().length > 0
+        case #selector(copyAsRichText(_:)), #selector(copyAsMarkdown(_:)):
             return selectedRange().length > 0
         case #selector(setModeRaw(_:)), #selector(setModeLive(_:)), #selector(setModeView(_:)):
             if let mi = item as? NSMenuItem, let mode = controller?.mode {

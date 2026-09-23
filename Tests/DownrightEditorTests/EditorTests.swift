@@ -121,6 +121,65 @@ final class EditorTests: XCTestCase {
 }
 
 @MainActor
+final class CopyFormatTests: XCTestCase {
+    private func make(_ text: String, mode: EditorController.Mode = .live) -> EditorController {
+        let c = EditorController(textStorage: NSTextStorage(string: text))
+        c.layoutManager.textContainer?.size = CGSize(width: 600, height: 1e7)
+        c.mode = mode
+        c.textView.setSelectedRange(NSRange(location: 0, length: (text as NSString).length))
+        return c
+    }
+    /// Rich text reaches the pasteboard as RTF; the Markdown source does not.
+    private func pasteboardIsRich() -> Bool {
+        NSPasteboard.general.data(forType: .rtf) != nil
+    }
+
+    /// In View mode the source is not on screen, and the reason to select is to paste
+    /// somewhere else — so ⌘C hands over formatted text whatever the setting says.
+    func testViewModeCopiesRichText() {
+        let c = make("# Title\n", mode: .view)
+        XCTAssertTrue(c.textView.copiesRichText)
+        NSPasteboard.general.clearContents()
+        c.textView.copy(nil)
+        XCTAssertTrue(pasteboardIsRich())
+        XCTAssertEqual(NSPasteboard.general.string(forType: NSPasteboard.PasteboardType("net.daringfireball.markdown")), "# Title\n")
+    }
+
+    func testLiveModeStillCopiesSourceByDefault() {
+        let c = make("# Title\n")
+        XCTAssertFalse(c.textView.copiesRichText)
+        NSPasteboard.general.clearContents()
+        c.textView.copy(nil)
+        XCTAssertFalse(pasteboardIsRich())
+        XCTAssertEqual(NSPasteboard.general.string(forType: .string), "# Title\n")
+    }
+
+    /// ⌘⇧C is always the other one, so View mode can still yield Markdown.
+    func testAlternateCopyInViewModeGivesMarkdown() {
+        let c = make("# Title\n", mode: .view)
+        NSPasteboard.general.clearContents()
+        c.textView.copyAlternate(nil)
+        XCTAssertFalse(pasteboardIsRich())
+        XCTAssertEqual(NSPasteboard.general.string(forType: .string), "# Title\n")
+    }
+
+    /// Both formats are named in the context menu, and stay available where the document
+    /// cannot be edited.
+    func testContextMenuNamesBothCopyFormats() {
+        let c = make("# Title\n", mode: .view)
+        let event = NSEvent.mouseEvent(with: .rightMouseDown, location: NSPoint(x: 20, y: 20), modifierFlags: [], timestamp: 0,
+                                       windowNumber: 0, context: nil, eventNumber: 0, clickCount: 1, pressure: 1)!
+        let titles = c.textView.menu(for: event)?.items.map(\.title) ?? []
+        XCTAssertTrue(titles.contains("Copy as Rich Text"), "\(titles)")
+        XCTAssertTrue(titles.contains("Copy as Markdown"), "\(titles)")
+        for selector in [#selector(MarkdownTextView.copyAsRichText(_:)), #selector(MarkdownTextView.copyAsMarkdown(_:))] {
+            let item = NSMenuItem(title: "", action: selector, keyEquivalent: "")
+            XCTAssertTrue(c.textView.validateUserInterfaceItem(item), "\(selector) with a selection")
+        }
+    }
+}
+
+@MainActor
 final class LinkPasteTests: XCTestCase {
     private func make(_ text: String) -> EditorController {
         let c = EditorController(textStorage: NSTextStorage(string: text))
@@ -180,7 +239,9 @@ final class LinkPasteTests: XCTestCase {
         c.textView.setSelectedRange(NSRange(location: 0, length: 5))
         let inside = c.caretRect(at: 2).map { NSPoint(x: $0.midX, y: $0.midY) } ?? NSPoint(x: 40, y: 34)
         let titles = rightClick(atTextViewPoint: inside)
-        XCTAssertEqual(Array(titles.prefix(4)), ["Insert Link", "Bold", "Italic", "Inline Code"], "selection after menu: \(c.textView.selectedRange())")
+        XCTAssertEqual(Array(titles.prefix(7)),
+                       ["Copy as Rich Text", "Copy as Markdown", "", "Insert Link", "Bold", "Italic", "Inline Code"],
+                       "selection after menu: \(c.textView.selectedRange())")
         // Right-click on a blank line auto-selects at most the newline: no formatting offered.
         c.textView.setSelectedRange(NSRange(location: 0, length: 0))
         let blank = c.caretRect(at: 14).map { NSPoint(x: 300, y: $0.midY) } ?? NSPoint(x: 300, y: 110)
