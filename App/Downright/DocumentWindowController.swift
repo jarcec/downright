@@ -30,6 +30,8 @@ final class DocumentWindowController: NSWindowController, NSWindowDelegate {
     private let statusBar = StatusBarView(frame: .zero)
     private let notice = NoticeBarView(frame: .zero)
     private lazy var outlineTop = outline.topAnchor.constraint(equalTo: notice.bottomAnchor, constant: 12)
+    /// Live while this window hosts the tab bar; see `observeTabGroup()`.
+    private var tabGroupObservers: [NSKeyValueObservation] = []
 
     /// Keep the outline below the find bar. Modern NSScrollView floats the bar over the
     /// top of the scroll view and offsets the text with content insets, so the clip view's
@@ -182,7 +184,12 @@ final class DocumentWindowController: NSWindowController, NSWindowDelegate {
 
     func windowDidResize(_ notification: Notification) {
         outline.maxHeight = max(120, (window?.contentView?.bounds.height ?? 600) * 0.5)
-        if window?.inLiveResize == false { rememberFrame() }   // zoom / programmatic resizes
+        if window?.inLiveResize == false {
+            rememberFrame()   // zoom / programmatic resizes
+            // Showing or hiding the tab bar resizes the content, and a bar that has just
+            // appeared comes in the system's colours.
+            applyTabBarTheme()
+        }
     }
 
     /// Called after the document re-read its file (external change, revert).
@@ -218,14 +225,44 @@ final class DocumentWindowController: NSWindowController, NSWindowDelegate {
         applyTheme()
     }
 
-    /// The theme reaches past the text: the gutter, the floating outline and the window
-    /// itself, so a warm page does not sit in grey chrome.
+    /// The theme reaches past the text: the gutter, the floating outline, the tab bar and
+    /// the window itself, so a warm page does not sit in grey chrome.
     private func applyTheme() {
         let theme = editor.theme
         outline.theme = theme
         gutter.needsDisplay = true
         window?.backgroundColor = theme.backgroundColor
         statusBar.theme = theme
+        applyTabBarTheme()
+    }
+
+    /// AppKit rebuilds the tab bar when the group changes and hands it to whichever tab is
+    /// selected, each time in the system's own colours — so the bar is re-dressed after the
+    /// run loop has laid it out, not only when the theme changes.
+    private func applyTabBarTheme() {
+        TabBarChrome.apply(editor.theme, to: window)
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            TabBarChrome.apply(self.editor.theme, to: self.window)
+        }
+    }
+
+    /// Follow the tab group: a tab added, removed or selected rebuilds the bar. The group
+    /// itself only exists once this window has company, so the observers are re-made every
+    /// time the window comes forward, which is also when it is handed the bar.
+    private func observeTabGroup() {
+        tabGroupObservers = (window?.tabGroup).map { group in
+            [group.observe(\.windows) { [weak self] _, _ in Task { @MainActor in self?.applyTabBarTheme() } },
+             group.observe(\.selectedWindow) { [weak self] _, _ in Task { @MainActor in self?.applyTabBarTheme() } }]
+        } ?? []
+    }
+
+    func windowDidBecomeKey(_ notification: Notification) { cameForward() }
+    func windowDidBecomeMain(_ notification: Notification) { cameForward() }
+
+    private func cameForward() {
+        observeTabGroup()
+        applyTabBarTheme()
     }
 
     private var stats = EditorController.Statistics(lines: 0, words: 0, characters: 0)

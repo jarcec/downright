@@ -42,8 +42,8 @@ warm palette — a cream page with ink-brown text, folded over on itself for nig
 BoardGamePad's "Tabletop, on Paper": terracotta carries headings, syntax markers and the vim
 cursor, links keep the palette's slate blue. Custom gives that slot its own colour per token, set
 in Settings or as `colors.light.<name>` / `colors.dark.<name>` in the file; anything left out comes
-from the slot's own ground. The theme dresses the whole app — the title bar, Settings and About
-included.
+from the slot's own ground. The theme dresses the whole app — the title bar, the tab bar, Settings
+and About included.
 ## Icon
 
 `App/Icon/render-icon.swift` draws the icon with CoreGraphics; `App/Downright/Resources/AppIcon.icns`
