@@ -223,6 +223,60 @@ final class LinkPasteTests: XCTestCase {
         }
     }
 
+    func testTrailingReserveNarrowsTheColumnFromTheRight() {
+        let c = make("# Title\nbody\n")
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 400), styleMask: [.titled], backing: .buffered, defer: false)
+        window.contentView = c.scrollView
+        c.scrollView.frame = NSRect(x: 0, y: 0, width: 600, height: 400)
+        window.layoutIfNeeded()
+        let container = c.layoutManager.textContainer!
+        XCTAssertEqual(c.textView.textContainerInset.width, 28)
+        XCTAssertEqual(container.size.width, 600 - 56, accuracy: 0.5, "symmetric insets by default")
+
+        c.trailingReserve = 246   // the expanded outline plus its gap
+        XCTAssertEqual(c.textView.textContainerInset.width, 28, "the leading inset is untouched")
+        XCTAssertEqual(container.size.width, 600 - 28 - 28 - 246, accuracy: 0.5, "lines wrap before the reserve")
+
+        // A frame change re-applies the symmetric width; the reserve must survive it.
+        c.scrollView.frame = NSRect(x: 0, y: 0, width: 700, height: 400)
+        window.layoutIfNeeded()
+        XCTAssertEqual(container.size.width, 700 - 28 - 28 - 246, accuracy: 0.5)
+
+        // Too narrow to honour: the reserve is ignored rather than crushing the text.
+        c.scrollView.frame = NSRect(x: 0, y: 0, width: 400, height: 400)
+        window.layoutIfNeeded()
+        XCTAssertEqual(container.size.width, 400 - 56, accuracy: 0.5)
+
+        c.trailingReserve = 0
+        XCTAssertEqual(container.size.width, 400 - 56, accuracy: 0.5)
+    }
+
+    func testTrailingReserveKeepsACentredColumnWhereThereIsRoom() {
+        let c = make("# Title\nbody\n")
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1200, height: 400), styleMask: [.titled], backing: .buffered, defer: false)
+        window.contentView = c.scrollView
+        c.scrollView.frame = NSRect(x: 0, y: 0, width: 1200, height: 400)
+        window.layoutIfNeeded()
+        let container = c.layoutManager.textContainer!
+        c.maxContentWidth = 600
+        c.trailingReserve = 246
+        // (1200 - 600) / 2 = 300 of margin a side: the outline fits in it, nothing moves.
+        XCTAssertEqual(c.textView.textContainerInset.width, 300)
+        XCTAssertEqual(container.size.width, 600, accuracy: 0.5)
+
+        // 1000 wide: 200 a side is not enough; the column slides left just enough to clear it.
+        c.scrollView.frame = NSRect(x: 0, y: 0, width: 1000, height: 400)
+        window.layoutIfNeeded()
+        XCTAssertEqual(container.size.width, 600, accuracy: 0.5)
+        XCTAssertEqual(c.textView.textContainerInset.width, 1000 - 274 - 600)
+
+        // 900 wide cannot fit both: the column gives up width instead of sliding under it.
+        c.scrollView.frame = NSRect(x: 0, y: 0, width: 900, height: 400)
+        window.layoutIfNeeded()
+        XCTAssertEqual(c.textView.textContainerInset.width, 28)
+        XCTAssertEqual(container.size.width, 900 - 28 - 274, accuracy: 0.5)
+    }
+
     func testContextMenuOffersInsertLinkForSelection() {
         let c = make("hello world\n\n\n\n\n\n")   // blank lines give the click empty space
         // A real window so the event's location converts to view coordinates.

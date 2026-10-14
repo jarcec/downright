@@ -191,17 +191,49 @@ public final class EditorController: NSObject, NSTextViewDelegate, @preconcurren
 
     /// Widest text column in points; 0 means use the full width. The column is centred.
     public var maxContentWidth: CGFloat = 0 { didSet { updateContentInsets() } }
+    /// Width kept clear at the text's trailing edge for chrome that sits beside the text
+    /// rather than over it (the expanded outline). Lines wrap before reaching it. Ignored
+    /// when honouring it would leave less than `minimumColumnWidth` for the text.
+    public var trailingReserve: CGFloat = 0 { didSet { updateContentInsets() } }
     private let baseInset = NSSize(width: 28, height: 24)
+    private let minimumColumnWidth: CGFloat = 240
 
     func updateContentInsets() {
         let available = scrollView.contentSize.width
-        var inset = baseInset.width
-        if maxContentWidth > 0, available > maxContentWidth + 2 * baseInset.width {
-            inset = ((available - maxContentWidth) / 2).rounded()
+        let left0 = baseInset.width
+        var right0 = baseInset.width + trailingReserve
+        if trailingReserve > 0, available - left0 - right0 < minimumColumnWidth { right0 = left0 }
+        var left = left0, right = right0
+        if maxContentWidth > 0 {
+            let centred = ((available - maxContentWidth) / 2).rounded()
+            if centred >= right0 {
+                left = centred; right = centred          // room on both sides: stay centred
+            } else if available - left0 - right0 > maxContentWidth {
+                left = available - right0 - maxContentWidth   // shift just enough to clear the reserve
+            }
         }
-        if abs(textView.textContainerInset.width - inset) > 0.5 {
-            textView.textContainerInset = NSSize(width: inset, height: baseInset.height)
-            textView.updateBlockCursor()
+        applyContainerInsets(left: left, right: right)
+    }
+
+    private var trailingInset: CGFloat = 28
+
+    private func applyContainerInsets(left: CGFloat, right: CGFloat) {
+        let changed = abs(textView.textContainerInset.width - left) > 0.5 || abs(trailingInset - right) > 0.5
+        trailingInset = right
+        if changed {
+            textView.textContainerInset = NSSize(width: left, height: baseInset.height)
+        }
+        applyContainerWidth()
+        if changed { textView.updateBlockCursor() }
+    }
+
+    /// NSTextView sizes a tracking container symmetrically (frame width minus twice the
+    /// inset); the trailing inset may differ, so the width is set again by hand — here and
+    /// after every frame change the view applies.
+    func applyContainerWidth() {
+        let width = max(0, textView.frame.width - textView.textContainerInset.width - trailingInset)
+        if abs(textContainer.size.width - width) > 0.5 {
+            textContainer.size = CGSize(width: width, height: textContainer.size.height)
         }
     }
 

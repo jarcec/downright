@@ -64,7 +64,8 @@ final class DocumentWindowController: NSWindowController, NSWindowDelegate {
         window.delegate = self
         shouldCascadeWindows = true
 
-        // Content: gutter | scroll view, with the outline floating top-right above the text.
+        // Content: gutter | scroll view, with the outline top-right beside the text (or
+        // floating over it when collapsed).
         let container = NSView()
         let scroll = editor.scrollView
         scroll.translatesAutoresizingMaskIntoConstraints = false
@@ -124,7 +125,7 @@ final class DocumentWindowController: NSWindowController, NSWindowDelegate {
         outline.onSelect = { [weak self] offset in self?.editor.scroll(to: offset) }
         editor.textView.overlayViews = [outline]
         outline.isCollapsed = Settings.outlineCollapsed
-        outline.onCollapsedChange = { Settings.outlineCollapsed = $0 }
+        outline.onCollapsedChange = { [weak self] in Settings.outlineCollapsed = $0; self?.outlineFootprintChanged() }
         document.externalChangeWhileEdited = { [weak self] in self?.showExternalChangeNotice() }
         if ProcessInfo.processInfo.environment["DOWNRIGHT_DEBUG_NOTICE"] != nil {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in self?.showExternalChangeNotice() }
@@ -218,6 +219,7 @@ final class DocumentWindowController: NSWindowController, NSWindowDelegate {
         gutter.isHidden = !Settings.showLineNumbers
         outline.isHidden = !Settings.showOutline || editor.headings().isEmpty
         outline.isCollapsed = Settings.outlineCollapsed
+        outlineFootprintChanged()
         editor.textView.vim.isEnabled = Settings.vimMode
         editor.textView.copiesRichTextByDefault = Settings.copyRichText
         editor.theme = Settings.theme
@@ -272,9 +274,16 @@ final class DocumentWindowController: NSWindowController, NSWindowDelegate {
         gutter.needsDisplay = true
         outline.reload(editor.headings())
         outline.isHidden = !Settings.showOutline || editor.headings().isEmpty
+        outlineFootprintChanged()
         stats = editor.statistics()
         statusBar.trailingText = editor.detectedDialect.summary
         updateStatusLeading()
+    }
+
+    /// The expanded outline sits beside the text, not over it: the text column keeps its
+    /// width clear and wraps before it. The collapsed pill floats as before.
+    private func outlineFootprintChanged() {
+        if editor.trailingReserve != outline.footprint { editor.trailingReserve = outline.footprint }
     }
 
     private func selectionChanged() {

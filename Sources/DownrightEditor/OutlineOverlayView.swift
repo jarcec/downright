@@ -1,10 +1,14 @@
 import AppKit
 
-/// Compact floating outline of the document's headings. Click to jump; the heading
-/// containing the caret is highlighted.
+/// Compact outline of the document's headings. Click to jump; the heading containing the
+/// caret is highlighted. Expanded, it sits beside the text (the host keeps `footprint`
+/// clear, see `EditorController.trailingReserve`); collapsed to its pill it floats over it.
 @MainActor
 public final class OutlineOverlayView: NSVisualEffectView, NSTableViewDataSource, NSTableViewDelegate {
     public var onSelect: ((Int) -> Void)?
+    /// Width the text should keep clear so the panel does not cover it: the expanded
+    /// panel plus a gap, or nothing while collapsed or hidden.
+    public var footprint: CGFloat { isHidden || isCollapsed ? 0 : expandedWidth + 16 }
     /// Colours follow the editor's theme, so the panel matches the page it floats over.
     public var theme = Theme() { didSet { applyTheme() } }
     /// Called when the user collapses or expands the panel, so the host can persist it.
@@ -28,8 +32,8 @@ public final class OutlineOverlayView: NSVisualEffectView, NSTableViewDataSource
     private let collapsedWidth: CGFloat = 96
     private var suppressSelection = false
 
-    /// Resting opacity; the panel becomes solid while the pointer is over it so it stays
-    /// out of the way of the text it floats above.
+    /// Resting opacity of the collapsed pill, which floats over the text; it becomes solid
+    /// while the pointer is over it. The expanded panel sits beside the text and is solid.
     public var restingAlpha: CGFloat = 0.45
     private var hoverTracking: NSTrackingArea?
 
@@ -100,7 +104,6 @@ public final class OutlineOverlayView: NSVisualEffectView, NSTableViewDataSource
         widthConstraint = widthAnchor.constraint(equalToConstant: expandedWidth)
         widthConstraint.isActive = true
         applyCollapsed()
-        alphaValue = restingAlpha
     }
 
     // MARK: - Hover: translucent at rest, solid under the pointer
@@ -139,7 +142,7 @@ public final class OutlineOverlayView: NSVisualEffectView, NSTableViewDataSource
     private func setSolid(_ solid: Bool) {
         NSAnimationContext.runAnimationGroup { ctx in
             ctx.duration = 0.15
-            animator().alphaValue = solid ? 1 : restingAlpha
+            animator().alphaValue = solid || !isCollapsed ? 1 : restingAlpha
         }
     }
 
@@ -155,6 +158,7 @@ public final class OutlineOverlayView: NSVisualEffectView, NSTableViewDataSource
         header.image = NSImage(systemSymbolName: symbol, accessibilityDescription: isCollapsed ? "Expand" : "Collapse")
         header.image?.isTemplate = true
         widthConstraint.constant = isCollapsed ? collapsedWidth : expandedWidth
+        alphaValue = isCollapsed ? restingAlpha : 1
         updateHeight()
     }
 

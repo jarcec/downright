@@ -40,6 +40,13 @@ public final class MarkdownTextView: NSTextView {
 
     func modeDidChange() { if controller?.mode != .live { hideTableHandles() } }
 
+    /// The tracking container is re-sized symmetrically on every frame change; restore the
+    /// trailing inset the controller asked for.
+    public override func setFrameSize(_ newSize: NSSize) {
+        super.setFrameSize(newSize)
+        controller?.applyContainerWidth()
+    }
+
     public func updateBlockCursor() {
         guard vim.isEnabled, vim.mode != .insert, selectedRange().length == 0, let controller,
               let caret = controller.caretRect(at: selectedRange().location) else {
