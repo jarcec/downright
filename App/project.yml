@@ -28,8 +28,8 @@ targets:
       base:
         PRODUCT_NAME: Downright
         PRODUCT_BUNDLE_IDENTIFIER: com.jarcec.Downright
-        MARKETING_VERSION: "0.1.3"
-        CURRENT_PROJECT_VERSION: "88"
+        MARKETING_VERSION: "0.1.4"
+        CURRENT_PROJECT_VERSION: "90"
         # Ad-hoc signing by default. `./devtool release` overrides CODE_SIGN_IDENTITY with
         # a Developer ID certificate (DOWNRIGHT_SIGN_IDENTITY) and notarizes when configured.
         CODE_SIGN_STYLE: Manual
