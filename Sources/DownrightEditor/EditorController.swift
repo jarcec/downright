@@ -227,9 +227,8 @@ public final class EditorController: NSObject, NSTextViewDelegate, @preconcurren
         if changed { textView.updateBlockCursor() }
     }
 
-    /// NSTextView sizes a tracking container symmetrically (frame width minus twice the
-    /// inset); the trailing inset may differ, so the width is set again by hand — here and
-    /// after every frame change the view applies.
+    /// The container does not track the view (its trailing inset may differ from the
+    /// leading one), so its width is set here and after every frame change the view applies.
     func applyContainerWidth() {
         let width = max(0, textView.frame.width - textView.textContainerInset.width - trailingInset)
         if abs(textContainer.size.width - width) > 0.5 {
@@ -298,7 +297,10 @@ public final class EditorController: NSObject, NSTextViewDelegate, @preconcurren
         self.engine = DecorationEngine(document: document, lines: lines, theme: theme)
 
         textContainer = NSTextContainer(size: CGSize(width: 0, height: CGFloat.greatestFiniteMagnitude))
-        textContainer.widthTracksTextView = true
+        // The width is set by hand (see `applyContainerWidth`): the trailing inset can differ
+        // from the leading one, and a tracking container would be re-sized symmetrically in
+        // every layout pass, fighting the override until layout fails to converge.
+        textContainer.widthTracksTextView = false
         textContainer.lineFragmentPadding = 0
         layoutManager.textContainer = textContainer
         contentStorage.textStorage = textStorage
@@ -359,6 +361,7 @@ public final class EditorController: NSObject, NSTextViewDelegate, @preconcurren
         applyThemeColors()
         scrollView.contentView.postsFrameChangedNotifications = true
         NotificationCenter.default.addObserver(self, selector: #selector(clipFrameChanged(_:)), name: NSView.frameDidChangeNotification, object: scrollView.contentView)
+        updateContentInsets()
     }
 
     @objc private func clipFrameChanged(_ note: Notification) { updateContentInsets() }

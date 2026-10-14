@@ -40,8 +40,7 @@ public final class MarkdownTextView: NSTextView {
 
     func modeDidChange() { if controller?.mode != .live { hideTableHandles() } }
 
-    /// The tracking container is re-sized symmetrically on every frame change; restore the
-    /// trailing inset the controller asked for.
+    /// The container does not track the view; size it to the new width minus the insets.
     public override func setFrameSize(_ newSize: NSSize) {
         super.setFrameSize(newSize)
         controller?.applyContainerWidth()
