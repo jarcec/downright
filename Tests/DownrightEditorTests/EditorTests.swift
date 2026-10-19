@@ -486,3 +486,120 @@ final class ListMarkerTintTests: XCTestCase {
         XCTAssertEqual(colour(paragraph(c, line: 1), 0), c.theme.listMarkerColor.hexString)
     }
 }
+
+@MainActor
+final class TableScrollTests: XCTestCase {
+    static let wide = """
+    Intro.
+
+    | Item | Fact | Source |
+    |---|---|---|
+    | Legal name | Estuary Technologies, Inc.; the product was renamed from Estuary Flow to Estuary in March 2026 | [18] |
+    | Founded | 2019 | [2] |
+
+    Outro.
+
+    """
+
+    private func make(_ text: String = wide, windowWidth: CGFloat = 420) -> (EditorController, NSString, Int) {
+        let c = EditorController(textStorage: NSTextStorage(string: text))
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: windowWidth, height: 500), styleMask: [.titled], backing: .buffered, defer: false)
+        window.contentView = c.scrollView
+        c.scrollView.frame = NSRect(x: 0, y: 0, width: windowWidth, height: 500)
+        window.layoutIfNeeded()
+        c.textView.setSelectedRange(NSRange(location: 0, length: 0))
+        let start = (text as NSString).range(of: "| Item").location
+        return (c, text as NSString, start)
+    }
+
+    private func lineCount(_ c: EditorController, line: Int) -> Int {
+        var n = 0
+        c.layoutManager.enumerateTextLayoutFragments(from: c.layoutManager.documentRange.location, options: [.ensuresLayout]) { f in
+            let loc = c.contentStorage.offset(from: c.contentStorage.documentRange.location, to: f.textElement!.elementRange!.location)
+            if c.lines.line(containing: loc) == line { n = f.textLineFragments.filter { $0.characterRange.length > 0 }.count; return false }
+            return true
+        }
+        return n
+    }
+
+    func testAWideTableScrollsSidewaysUnderTheColumn() {
+        let (c, s, start) = make()
+        let limit = c.engine.tableScrollLimit(blockStart: start)
+        XCTAssertGreaterThan(limit, 100, "the table runs well past a 420pt window")
+        let year = s.range(of: "2019").location
+        let before = c.caretRect(at: year)!
+        XCTAssertTrue(c.scrollTable(blockStart: start, to: 100))
+        let after = c.caretRect(at: year)!
+        XCTAssertEqual(after.minX, before.minX - 100, accuracy: 1, "the row is laid out shifted left")
+        XCTAssertEqual(after.minY, before.minY, accuracy: 0.5)
+        XCTAssertEqual(lineCount(c, line: 4), 1, "the long row stays one line")
+        XCTAssertEqual(c.caretRect(at: 0)!.minX, before.minX - before.minX + c.textView.textContainerInset.width, accuracy: 1, "the rest of the document does not move")
+        // Clamps to the overflow; a wider column slides it back.
+        c.scrollTable(blockStart: start, to: 10_000)
+        XCTAssertEqual(c.tableScroll(blockStart: start), limit, accuracy: 0.5)
+        c.engine.setColumnWidth(c.engine.columnWidth + 50)
+        XCTAssertEqual(c.tableScroll(blockStart: start), limit - 50, accuracy: 0.5)
+    }
+
+    func testATableThatFitsDoesNotScroll() {
+        let (c, _, start) = make("| a | b |\n|---|---|\n| 1 | 2 |\n", windowWidth: 600)
+        XCTAssertEqual(c.engine.tableScrollLimit(blockStart: start - 0), 0)
+        XCTAssertFalse(c.scrollTable(blockStart: 0, to: 50))
+    }
+
+    func testTheCaretKeepsItsCellInsideTheColumn() {
+        let (c, s, start) = make()
+        let source = s.range(of: "[18]").location
+        c.textView.setSelectedRange(NSRange(location: source, length: 0))
+        let scroll = c.tableScroll(blockStart: start)
+        XCTAssertGreaterThan(scroll, 0, "the last column was off-screen; the table scrolled to it")
+        let rect = c.caretRect(at: source)!
+        let inset = c.textView.textContainerInset.width
+        XCTAssertGreaterThanOrEqual(rect.minX, inset - 1)
+        XCTAssertLessThanOrEqual(rect.maxX, inset + c.engine.columnWidth + 1)
+        c.textView.setSelectedRange(NSRange(location: s.range(of: "Legal").location, length: 0))
+        XCTAssertEqual(c.tableScroll(blockStart: start), 0, accuracy: 0.5, "back to the first column")
+    }
+
+    func testACellWiderThanTheColumnOnlyKeepsTheCaretInView() {
+        let (c, s, start) = make()
+        // The Fact cell is wider than the column: scroll a little into it and click there.
+        c.scrollTable(blockStart: start, to: 120)
+        let fact = s.range(of: "Estuary Technologies").location
+        c.textView.setSelectedRange(NSRange(location: fact + 20, length: 0))
+        XCTAssertEqual(c.tableScroll(blockStart: start), 120, accuracy: 0.5, "a visible caret in a wide cell does not move the table")
+        // The caret at the far end of the cell drags the table along.
+        let end = s.range(of: "March 2026").end
+        c.textView.setSelectedRange(NSRange(location: end, length: 0))
+        let scrolled = c.tableScroll(blockStart: start)
+        XCTAssertGreaterThan(scrolled, 200)
+        let rect = c.caretRect(at: end)!
+        let inset = c.textView.textContainerInset.width
+        XCTAssertLessThanOrEqual(rect.maxX, inset + c.engine.columnWidth + 1)
+        XCTAssertGreaterThan(rect.minX, inset)
+        // And back to the cell's start, step by step, never losing the caret.
+        c.textView.setSelectedRange(NSRange(location: fact, length: 0))
+        XCTAssertLessThan(c.tableScroll(blockStart: start), scrolled)
+        XCTAssertGreaterThan(c.caretRect(at: fact)!.minX, inset)
+    }
+
+    func testASidewaysGestureOverTheTableScrollsItNotThePage() {
+        let (c, s, start) = make()
+        let inTable = c.caretRect(at: s.range(of: "Legal").location)!
+        let p = NSPoint(x: inTable.midX, y: inTable.midY)
+        // Mostly vertical: not ours.
+        XCTAssertFalse(c.handleTableScroll(deltaX: -3, deltaY: -20, at: p, phase: .began, momentumPhase: []))
+        // Mostly horizontal, latched through the gesture and its momentum.
+        XCTAssertTrue(c.handleTableScroll(deltaX: -30, deltaY: -2, at: p, phase: .began, momentumPhase: []))
+        XCTAssertTrue(c.handleTableScroll(deltaX: -30, deltaY: 0, at: p, phase: .changed, momentumPhase: []))
+        XCTAssertTrue(c.handleTableScroll(deltaX: 0, deltaY: 0, at: p, phase: .ended, momentumPhase: []))
+        XCTAssertTrue(c.handleTableScroll(deltaX: -10, deltaY: 0, at: p, phase: [], momentumPhase: .changed))
+        XCTAssertTrue(c.handleTableScroll(deltaX: 0, deltaY: 0, at: p, phase: [], momentumPhase: .ended))
+        XCTAssertEqual(c.tableScroll(blockStart: start), 70, accuracy: 0.5)
+        // Over ordinary text: the page's.
+        let outside = c.caretRect(at: 0)!
+        XCTAssertFalse(c.handleTableScroll(deltaX: -30, deltaY: 0, at: NSPoint(x: outside.midX, y: outside.midY), phase: .began, momentumPhase: []))
+        XCTAssertFalse(c.handleTableScroll(deltaX: -30, deltaY: 0, at: NSPoint(x: outside.midX, y: outside.midY), phase: .changed, momentumPhase: []))
+        XCTAssertEqual(c.tableScroll(blockStart: start), 70, accuracy: 0.5)
+    }
+}

@@ -18,6 +18,8 @@ final class DecoratedLayoutFragment: NSTextLayoutFragment {
     var quoteBottom = false
     var listGuides: [CGFloat] = []
     var theme = Theme()
+    /// Table rows: how far their table is scrolled sideways (the layout is shifted by it).
+    var tableScroll: CGFloat = 0
 
     override var layoutFragmentFrame: CGRect {
         var f = super.layoutFragmentFrame
@@ -37,11 +39,16 @@ final class DecoratedLayoutFragment: NSTextLayoutFragment {
 
     /// An indented paragraph's fragment frame starts at the indent, not at the column
     /// edge; block decorations are drawn relative to the column, so shift back by it.
+    /// (A scrolled table row's frame starts left of the column by its offset, so this
+    /// brings it back to the column edge too.)
     private var indentOffset: CGFloat { super.layoutFragmentFrame.origin.x }
 
     override var renderingSurfaceBounds: CGRect {
         var b = super.renderingSurfaceBounds
         b = b.union(CGRect(x: -indentOffset - 8, y: 0, width: columnWidth + 16, height: super.layoutFragmentFrame.height))
+        if case .table(let boundaries, _, _, _) = appearance, let last = boundaries.last {
+            b = b.union(CGRect(x: -indentOffset - 8, y: 0, width: last + 16, height: super.layoutFragmentFrame.height))
+        }
         return b
     }
 
@@ -63,6 +70,12 @@ final class DecoratedLayoutFragment: NSTextLayoutFragment {
         let lineRect = CGRect(x: point.x - indentOffset, y: point.y, width: width, height: height)
 
         context.saveGState()
+        // A table wider than the column is cut at the column's edges and scrolls within them.
+        var tableOverflow: (left: Bool, right: Bool)? = nil
+        if case .table(let boundaries, _, _, _) = appearance, let last = boundaries.last, last > width + 0.5 || tableScroll > 0 {
+            context.clip(to: CGRect(x: lineRect.minX - 1, y: lineRect.minY, width: width + 2, height: height))
+            tableOverflow = (tableScroll > 0.5, last - tableScroll > width + 0.5)
+        }
         switch appearance {
         case .plain, .hidden:
             break
@@ -85,14 +98,14 @@ final class DecoratedLayoutFragment: NSTextLayoutFragment {
             context.fill(CGRect(x: lineRect.minX, y: mid - 0.5, width: width, height: 1))
         case .table(let boundaries, let header, let top, let bottom):
             guard let first = boundaries.first, let last = boundaries.last else { break }
-            let x0 = lineRect.minX + first, x1 = lineRect.minX + last
+            let x0 = lineRect.minX + first - tableScroll, x1 = lineRect.minX + last - tableScroll
             if header {
                 context.setFillColor(theme.codeBlockBackground.cgColor)
                 context.fill(CGRect(x: x0, y: lineRect.minY, width: x1 - x0, height: height))
             }
             context.setFillColor(theme.rule.cgColor)
             for b in boundaries {
-                context.fill(CGRect(x: lineRect.minX + b - 0.5, y: lineRect.minY, width: 1, height: height))
+                context.fill(CGRect(x: lineRect.minX + b - tableScroll - 0.5, y: lineRect.minY, width: 1, height: height))
             }
             if top { context.fill(CGRect(x: x0, y: lineRect.minY, width: x1 - x0, height: 1)) }
             let thickness: CGFloat = header ? 1.5 : 1
@@ -122,7 +135,31 @@ final class DecoratedLayoutFragment: NSTextLayoutFragment {
         context.restoreGState()
 
         if appearance == .rule { return }   // text is concealed anyway
+        guard let overflow = tableOverflow else { return super.draw(at: point, in: context) }
+        // A wide table's text is cut at the column too, with the edges faded so the
+        // overflow reads as scrollable.
+        context.saveGState()
+        context.clip(to: CGRect(x: lineRect.minX - 1, y: lineRect.minY, width: width + 2, height: height))
         super.draw(at: point, in: context)
+        do {
+            let fade: CGFloat = 24
+            let colors = [theme.backgroundColor.withAlphaComponent(0).cgColor, theme.backgroundColor.cgColor] as CFArray
+            if let gradient = CGGradient(colorsSpace: CGColorSpaceCreateDeviceRGB(), colors: colors, locations: [0, 1]) {
+                if overflow.right {
+                    context.saveGState()
+                    context.clip(to: CGRect(x: lineRect.maxX - fade, y: lineRect.minY, width: fade, height: height))
+                    context.drawLinearGradient(gradient, start: CGPoint(x: lineRect.maxX - fade, y: 0), end: CGPoint(x: lineRect.maxX, y: 0), options: [])
+                    context.restoreGState()
+                }
+                if overflow.left {
+                    context.saveGState()
+                    context.clip(to: CGRect(x: lineRect.minX, y: lineRect.minY, width: fade, height: height))
+                    context.drawLinearGradient(gradient, start: CGPoint(x: lineRect.minX + fade, y: 0), end: CGPoint(x: lineRect.minX, y: 0), options: [])
+                    context.restoreGState()
+                }
+            }
+        }
+        context.restoreGState()
     }
 
     private func fill(_ rect: CGRect, color: NSColor, top: Bool, bottom: Bool, radius: CGFloat, in ctx: CGContext) {

@@ -41,7 +41,94 @@ public final class DecorationEngine {
         revealedCell = cell
     }
     /// Horizontal padding on each side of a cell's text.
-    static let cellGutter: CGFloat = 10
+    nonisolated static let cellGutter: CGFloat = 10
+
+    // MARK: - Table scrolling
+
+    /// Width of the text column, the viewport a wide table scrolls within. Infinite until
+    /// the controller sets it.
+    public private(set) var columnWidth: CGFloat = .greatestFiniteMagnitude
+    /// Requested horizontal offset per table (block start). Clamped to the table's
+    /// overflow when read, so a window that grows reveals the table again.
+    private var tableScrolls: [Int: CGFloat] = [:]
+
+    /// Sets the column width and returns the ranges of the scrolled tables whose
+    /// effective offset changed with it.
+    @discardableResult
+    public func setColumnWidth(_ width: CGFloat) -> [NSRange] {
+        guard abs(width - columnWidth) > 0.5 else { return [] }
+        let before = tableScrolls.keys.map { ($0, tableScroll(blockStart: $0)) }
+        columnWidth = width
+        return before.compactMap { start, old in
+            abs(tableScroll(blockStart: start) - old) > 0.5 ? tableBlock(at: start)?.range : nil
+        }
+    }
+
+    /// How far the table starting at `blockStart` can scroll: its width past the column.
+    public func tableScrollLimit(blockStart: Int) -> CGFloat {
+        guard let block = tableBlock(at: blockStart), case .table(let t) = block.kind,
+              t.allRows.allSatisfy({ ($0.separators.first?.length ?? 0) > 0 }) else { return 0 }   // rows without a leading pipe cannot shift
+        let width = tableLayout(for: t, blockStart: blockStart).boundaries.last ?? 0
+        return max(0, width + 1 - columnWidth)
+    }
+
+    /// The table's effective horizontal offset.
+    public func tableScroll(blockStart: Int) -> CGFloat {
+        guard let wanted = tableScrolls[blockStart], wanted > 0 else { return 0 }
+        return min(wanted, tableScrollLimit(blockStart: blockStart))
+    }
+
+    /// Offset for the table containing `offset`; 0 elsewhere.
+    public func tableScroll(containing offset: Int) -> CGFloat {
+        guard !tableScrolls.isEmpty, !sourceMode else { return 0 }
+        for (start, wanted) in tableScrolls where wanted > 0 {
+            if let block = tableBlock(at: start), block.range.contains(offset) { return tableScroll(blockStart: start) }
+        }
+        return 0
+    }
+
+    /// For the text container: nil unless the line at `offset` belongs to a rendered
+    /// table, else that table's offset. Reads the (cached) decoration, so it costs nothing
+    /// beyond the layout already paying for it.
+    public func tableLineShift(at offset: Int) -> CGFloat? {
+        guard !sourceMode else { return nil }
+        switch decoration(forParagraphAt: offset).role {
+        case .tableRow, .tableDelimiter: return tableScroll(containing: offset)
+        default: return nil
+        }
+    }
+
+    /// Returns whether the effective offset changed.
+    @discardableResult
+    public func setTableScroll(blockStart: Int, to offset: CGFloat) -> Bool {
+        let old = tableScroll(blockStart: blockStart)
+        tableScrolls[blockStart] = max(0, offset)
+        return abs(tableScroll(blockStart: blockStart) - old) > 0.5
+    }
+
+    /// Scrolls the table so the given cell is inside the column — or, for a cell wider
+    /// than the column, so the caret (at `caretX`, in unscrolled table coordinates) is,
+    /// with some room around it. Returns whether the table moved.
+    public func revealTableCell(blockStart: Int, cellIndex: Int, caretX: CGFloat?) -> Bool {
+        guard tableScrollLimit(blockStart: blockStart) > 0, let block = tableBlock(at: blockStart), case .table(let t) = block.kind else { return false }
+        let b = tableLayout(for: t, blockStart: blockStart).boundaries
+        guard cellIndex + 1 < b.count else { return false }
+        var s = tableScroll(blockStart: blockStart)
+        let left = b[cellIndex], right = b[cellIndex + 1] + 1
+        if right - left <= columnWidth {
+            if right > s + columnWidth { s = right - columnWidth }
+            if left < s { s = left }
+        } else if let x = caretX {
+            let room: CGFloat = 48
+            if x + room > s + columnWidth { s = x + room - columnWidth }
+            if x - room < s { s = x - room }
+        }
+        return setTableScroll(blockStart: blockStart, to: s)
+    }
+
+    private func tableBlock(at start: Int) -> Block? {
+        document.path(containing: start).last(where: { if case .table = $0.kind { return true }; return false })
+    }
 
     public init(document: Document, lines: LineIndex, theme: Theme, sourceMode: Bool = false) {
         self.document = document

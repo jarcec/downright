@@ -80,6 +80,22 @@ public final class MarkdownTextView: NSTextView {
 
     // MARK: - Checkbox clicks
 
+    /// NSTextView shifts the container origin right when layout extends left of it, which
+    /// a sideways-scrolled table does on purpose. Keep the origin at the inset, where the
+    /// controller's geometry (`caretRect`, the gutter, the handles) assumes it is.
+    public override var textContainerOrigin: NSPoint {
+        NSPoint(x: textContainerInset.width, y: textContainerInset.height)
+    }
+
+    public override func scrollWheel(with event: NSEvent) {
+        if let controller, controller.mode != .raw {
+            let scale: CGFloat = event.hasPreciseScrollingDeltas ? 1 : 10
+            if controller.handleTableScroll(deltaX: event.scrollingDeltaX * scale, deltaY: event.scrollingDeltaY * scale,
+                                            at: convert(event.locationInWindow, from: nil), phase: event.phase, momentumPhase: event.momentumPhase) { return }
+        }
+        super.scrollWheel(with: event)
+    }
+
     public override func mouseDown(with event: NSEvent) {
         if let controller, event.clickCount == 1, event.modifierFlags.intersection([.command, .shift, .option]).isEmpty {
             let p = convert(event.locationInWindow, from: nil)

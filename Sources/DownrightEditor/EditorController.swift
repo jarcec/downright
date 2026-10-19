@@ -41,6 +41,7 @@ public final class EditorController: NSObject, NSTextViewDelegate, @preconcurren
 
     private func rebuildEngine() {
         engine = DecorationEngine(document: document, lines: lines, theme: theme, sourceMode: mode == .raw)
+        engine.setColumnWidth(textContainer.size.width)
         pruneFolds()
         engine.hiddenLines = hiddenLines()
         storageDelegate.engine = engine
@@ -234,6 +235,54 @@ public final class EditorController: NSObject, NSTextViewDelegate, @preconcurren
         if abs(textContainer.size.width - width) > 0.5 {
             textContainer.size = CGSize(width: width, height: textContainer.size.height)
         }
+        // Scrolled tables clamp to the column: a wider window slides them back.
+        let changed = engine.setColumnWidth(width)
+        if !changed.isEmpty { invalidate(changed) }
+    }
+
+    // MARK: - Tables: sideways scrolling
+
+    /// Scrolls the table starting at `blockStart` to `offset` (clamped). Returns whether it moved.
+    @discardableResult
+    public func scrollTable(blockStart: Int, to offset: CGFloat) -> Bool {
+        guard engine.setTableScroll(blockStart: blockStart, to: offset),
+              let block = document.path(containing: blockStart).last(where: { if case .table = $0.kind { return true }; return false }) else { return false }
+        invalidate([block.range])
+        return true
+    }
+
+    public func tableScroll(blockStart: Int) -> CGFloat { engine.tableScroll(blockStart: blockStart) }
+
+    /// The caret's x within its table row in unscrolled coordinates (from the row's left
+    /// edge), read from the line fragment so a position scrolled out of view is not clamped.
+    private func tableCaretX(_ caret: Int) -> CGFloat? {
+        guard let loc = contentStorage.location(contentStorage.documentRange.location, offsetBy: min(caret, textStorage.length)) else { return nil }
+        layoutManager.ensureLayout(for: NSTextRange(location: loc))
+        guard let fragment = layoutManager.textLayoutFragment(for: loc) else { return nil }
+        let start = contentStorage.offset(from: contentStorage.documentRange.location, to: fragment.rangeInElement.location)
+        let i = caret - start
+        guard let line = fragment.textLineFragments.first(where: { NSLocationInRange(i, $0.characterRange) || $0.characterRange.end == i }) else { return nil }
+        return line.typographicBounds.minX + line.locationForCharacter(at: i).x
+    }
+
+    /// The table a sideways gesture is steering, latched for the gesture and its momentum.
+    private var tableScrollTarget: Int? = nil
+
+    /// Routes a scroll event: a mostly horizontal gesture starting over a table that is
+    /// wider than the column scrolls that table instead of the page. Returns whether it
+    /// was consumed.
+    public func handleTableScroll(deltaX: CGFloat, deltaY: CGFloat, at point: NSPoint, phase: NSEvent.Phase, momentumPhase: NSEvent.Phase) -> Bool {
+        let starts = phase == .began || phase == .mayBegin || (phase == [] && momentumPhase == [])
+        if starts {
+            tableScrollTarget = nil
+            guard abs(deltaX) > abs(deltaY), let offset = characterIndex(at: point), let hit = tableHit(at: offset),
+                  engine.tableScrollLimit(blockStart: hit.block.range.location) > 0 else { return false }
+            tableScrollTarget = hit.block.range.location
+        }
+        guard let target = tableScrollTarget else { return false }
+        if deltaX != 0 { scrollTable(blockStart: target, to: engine.tableScroll(blockStart: target) - deltaX) }
+        if phase == .cancelled || momentumPhase == .ended || momentumPhase == .cancelled { tableScrollTarget = nil }
+        return true
     }
 
     public private(set) var document: Document
@@ -296,7 +345,8 @@ public final class EditorController: NSObject, NSTextViewDelegate, @preconcurren
         self.lines = LineIndex(text)
         self.engine = DecorationEngine(document: document, lines: lines, theme: theme)
 
-        textContainer = NSTextContainer(size: CGSize(width: 0, height: CGFloat.greatestFiniteMagnitude))
+        let container = TableScrollingTextContainer(size: CGSize(width: 0, height: CGFloat.greatestFiniteMagnitude))
+        textContainer = container
         // The width is set by hand (see `applyContainerWidth`): the trailing inset can differ
         // from the leading one, and a tracking container would be re-sized symmetrically in
         // every layout pass, fighting the override until layout fails to converge.
@@ -314,6 +364,7 @@ public final class EditorController: NSObject, NSTextViewDelegate, @preconcurren
         contentStorage.delegate = storageDelegate
         layoutManager.delegate = self
         textStorage.delegate = self
+        container.tableShift = { [weak self] index in self?.engine.tableLineShift(at: index) }
 
         configureTextView()
         updateReveal()
@@ -591,6 +642,11 @@ public final class EditorController: NSObject, NSTextViewDelegate, @preconcurren
             toInvalidate.append(lines.paragraphRange(ofLine: lines.line(containing: caret)))
             _ = h
         }
+        // A wide table keeps the caret's cell (or, in a cell wider than the column, the
+        // caret itself) inside the column.
+        if let h = hit, let ci = h.cellIndex, engine.revealTableCell(blockStart: h.block.range.location, cellIndex: ci, caretX: tableCaretX(caret)) {
+            toInvalidate.append(h.block.range)
+        }
         lastRevealInvalidationCount = toInvalidate.reduce(0) { $0 + max(1, $1.length / 40) }
         invalidate(toInvalidate)
     }
@@ -766,6 +822,7 @@ public final class EditorController: NSObject, NSTextViewDelegate, @preconcurren
         fragment.quoteTop = d.quoteTop
         fragment.quoteBottom = d.quoteBottom
         fragment.listGuides = d.listGuides
+        if case .tableRow = d.role { fragment.tableScroll = engine.tableScroll(containing: offset) }
         fragment.appearance = Self.appearance(for: d.role, revealed: revealed, at: offset, length: length)
         return fragment
     }
