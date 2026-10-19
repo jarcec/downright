@@ -61,8 +61,68 @@ public final class MarkdownTextView: NSTextView {
 
     public override func layout() {
         super.layout()
+        updateSelectionOverlay()
         updateBlockCursor()
     }
+
+    // MARK: - Selection above the text
+
+    private lazy var selectionOverlay: SelectionOverlayView = {
+        let v = SelectionOverlayView(frame: bounds)
+        v.textView = self
+        v.autoresizingMask = [.width, .height]
+        return v
+    }()
+
+    /// Keep the overlay on top of the text (TextKit adds its content views lazily) with
+    /// the block cursor above it and chrome placed on the page (`overlayViews` that are
+    /// subviews) above both, and keep AppKit's own selection hidden.
+    private func updateSelectionOverlay() {
+        hideSystemSelection()
+        let top = [selectionOverlay, blockCursor] + overlayViews.filter { $0.superview === self }
+        if Array(subviews.suffix(top.count)) != top {
+            for v in top { addSubview(v, positioned: .above, relativeTo: nil) }
+        }
+        selectionOverlay.frame = bounds
+        selectionOverlay.needsDisplay = true
+    }
+
+    /// TextKit 2 draws the selection in a private view beneath the text, in a grey of its
+    /// own when the window is inactive. If AppKit ever renames it this finds nothing and
+    /// both highlights show — doubled, but never missing.
+    private func hideSystemSelection() {
+        for v in subviews where v !== selectionOverlay && String(describing: type(of: v)).contains("TextSelectionView") {
+            v.isHidden = true
+        }
+    }
+
+    public override func setNeedsDisplay(_ invalidRect: NSRect) {
+        super.setNeedsDisplay(invalidRect)
+        selectionOverlay.needsDisplay = true
+    }
+
+    public override func becomeFirstResponder() -> Bool {
+        defer { selectionOverlay.needsDisplay = true }
+        return super.becomeFirstResponder()
+    }
+
+    public override func resignFirstResponder() -> Bool {
+        defer { selectionOverlay.needsDisplay = true }
+        return super.resignFirstResponder()
+    }
+
+    public override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        NotificationCenter.default.removeObserver(self, name: NSWindow.didBecomeKeyNotification, object: nil)
+        NotificationCenter.default.removeObserver(self, name: NSWindow.didResignKeyNotification, object: nil)
+        guard let window else { return }
+        for name in [NSWindow.didBecomeKeyNotification, NSWindow.didResignKeyNotification] {
+            NotificationCenter.default.addObserver(self, selector: #selector(windowKeyDidChange(_:)), name: name, object: window)
+        }
+        updateSelectionOverlay()
+    }
+
+    @objc private func windowKeyDidChange(_ note: Notification) { selectionOverlay.needsDisplay = true }
 
     /// TextKit 2 relocates the viewport here and rebuilds the layout lazily at the next
     /// draw. NSTextFinder scrolls to the first match and asks for the match rectangles
@@ -75,6 +135,7 @@ public final class MarkdownTextView: NSTextView {
 
     public override func setSelectedRanges(_ ranges: [NSValue], affinity: NSSelectionAffinity, stillSelecting stillSelectingFlag: Bool) {
         super.setSelectedRanges(ranges, affinity: affinity, stillSelecting: stillSelectingFlag)
+        updateSelectionOverlay()
         updateBlockCursor()
     }
 
@@ -237,8 +298,9 @@ public final class MarkdownTextView: NSTextView {
         trackingArea = t
     }
 
-    /// Sibling views floating above the text (the outline). While the pointer is over one
-    /// of them the text view must not touch the cursor or show table handles.
+    /// Views floating above the text (the outline): siblings, or subviews when placed on
+    /// the page. While the pointer is over one of them the text view must not touch the
+    /// cursor or show table handles.
     public var overlayViews: [NSView] = []
 
     private func pointerIsOverOverlay(_ event: NSEvent) -> Bool {
