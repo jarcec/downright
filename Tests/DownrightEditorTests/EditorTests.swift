@@ -223,58 +223,75 @@ final class LinkPasteTests: XCTestCase {
         }
     }
 
-    func testTrailingReserveNarrowsTheColumnFromTheRight() {
-        let c = make("# Title\nbody\n")
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 400), styleMask: [.titled], backing: .buffered, defer: false)
-        window.contentView = c.scrollView
-        c.scrollView.frame = NSRect(x: 0, y: 0, width: 600, height: 400)
-        window.layoutIfNeeded()
-        let container = c.layoutManager.textContainer!
-        XCTAssertEqual(c.textView.textContainerInset.width, 28)
-        XCTAssertEqual(container.size.width, 600 - 56, accuracy: 0.5, "symmetric insets by default")
-
-        c.trailingReserve = 246   // the expanded outline plus its gap
-        XCTAssertEqual(c.textView.textContainerInset.width, 28, "the leading inset is untouched")
-        XCTAssertEqual(container.size.width, 600 - 28 - 28 - 246, accuracy: 0.5, "lines wrap before the reserve")
-
-        // A frame change re-applies the symmetric width; the reserve must survive it.
-        c.scrollView.frame = NSRect(x: 0, y: 0, width: 700, height: 400)
-        window.layoutIfNeeded()
-        XCTAssertEqual(container.size.width, 700 - 28 - 28 - 246, accuracy: 0.5)
-
-        // Too narrow to honour: the reserve is ignored rather than crushing the text.
-        c.scrollView.frame = NSRect(x: 0, y: 0, width: 400, height: 400)
-        window.layoutIfNeeded()
-        XCTAssertEqual(container.size.width, 400 - 56, accuracy: 0.5)
-
-        c.trailingReserve = 0
-        XCTAssertEqual(container.size.width, 400 - 56, accuracy: 0.5)
+    /// Right edges (container coordinates) of the laid-out lines, with their top.
+    private func lineExtents(_ c: EditorController) -> [(top: CGFloat, right: CGFloat)] {
+        var out: [(CGFloat, CGFloat)] = []
+        c.layoutManager.ensureLayout(for: c.contentStorage.documentRange)
+        c.layoutManager.enumerateTextLayoutFragments(from: c.contentStorage.documentRange.location, options: [.ensuresLayout]) { f in
+            for line in f.textLineFragments where line.characterRange.length > 0 {
+                let b = line.typographicBounds
+                out.append((f.layoutFragmentFrame.minY + b.minY, f.layoutFragmentFrame.minX + b.maxX))
+            }
+            return true
+        }
+        return out
     }
 
-    func testTrailingReserveKeepsACentredColumnWhereThereIsRoom() {
-        let c = make("# Title\nbody\n")
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1200, height: 400), styleMask: [.titled], backing: .buffered, defer: false)
+    private func floatEditor(width: CGFloat) -> (EditorController, NSWindow) {
+        let prose = String(repeating: "Words that wrap across the column and run on for a while. ", count: 40)
+        let c = make("# Title\n\(prose)\n")
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: width, height: 400), styleMask: [.titled], backing: .buffered, defer: false)
         window.contentView = c.scrollView
-        c.scrollView.frame = NSRect(x: 0, y: 0, width: 1200, height: 400)
+        c.scrollView.frame = NSRect(x: 0, y: 0, width: width, height: 400)
         window.layoutIfNeeded()
-        let container = c.layoutManager.textContainer!
-        c.maxContentWidth = 600
-        c.trailingReserve = 246
-        // (1200 - 600) / 2 = 300 of margin a side: the outline fits in it, nothing moves.
-        XCTAssertEqual(c.textView.textContainerInset.width, 300)
-        XCTAssertEqual(container.size.width, 600, accuracy: 0.5)
+        return (c, window)
+    }
 
-        // 1000 wide: 200 a side is not enough; the column slides left just enough to clear it.
+    func testTextWrapsAroundAPageFloat() throws {
+        let (c, window) = floatEditor(width: 800)
+        let column = c.textContainer.size.width
+        XCTAssertEqual(column, c.scrollView.contentSize.width - 56, accuracy: 0.5)
+        XCTAssertNil(c.pageFloatRect)
+        XCTAssertGreaterThan(lineExtents(c).first { $0.top > 40 }?.right ?? 0, column - 260, "full width without a float")
+
+        var fired = 0
+        c.onPageFloatChange = { fired += 1 }
+        c.pageFloatSize = CGSize(width: 230, height: 120)
+        XCTAssertEqual(fired, 1)
+        let slot = try XCTUnwrap(c.pageFloatRect)
+        XCTAssertEqual(slot, NSRect(x: 28 + column - 230, y: 24, width: 230, height: 120), "top-right of the column, in view coordinates")
+        XCTAssertEqual(c.textContainer.size.width, column, accuracy: 0.5, "the column itself keeps its width")
+
+        let lines = lineExtents(c)
+        let beside = lines.filter { $0.top < 120 + 8 }, below = lines.filter { $0.top >= 120 + 8 }
+        XCTAssertFalse(beside.isEmpty); XCTAssertFalse(below.isEmpty)
+        for l in beside { XCTAssertLessThanOrEqual(l.right, column - 230 - 16 + 0.5, "a line level with the float ends before it") }
+        XCTAssertGreaterThan(below.map(\.right).max() ?? 0, column - 230, "lines below the float run the full width")
+
+        // Too narrow to leave a usable column beside it: no float, full-width lines.
+        c.scrollView.frame = NSRect(x: 0, y: 0, width: 480, height: 400)
+        window.layoutIfNeeded()
+        XCTAssertNil(c.pageFloatRect)
+        XCTAssertGreaterThan(lineExtents(c).filter { $0.top < 120 }.map(\.right).max() ?? 0, c.scrollView.contentSize.width - 56 - 230)
+
+        c.scrollView.frame = NSRect(x: 0, y: 0, width: 800, height: 400)
+        window.layoutIfNeeded()
+        XCTAssertNotNil(c.pageFloatRect, "a wider window brings it back")
+        c.pageFloatSize = .zero
+        XCTAssertNil(c.pageFloatRect)
+        XCTAssertGreaterThan(lineExtents(c).filter { $0.top < 120 }.map(\.right).max() ?? 0, column - 230, "removing it restores the width")
+    }
+
+    func testPageFloatFollowsACentredColumn() throws {
+        let (c, window) = floatEditor(width: 1200)
+        c.maxContentWidth = 600
+        c.pageFloatSize = CGSize(width: 230, height: 120)
+        func centredRight() -> CGFloat { c.textView.textContainerInset.width + c.textContainer.size.width }
+        XCTAssertGreaterThan(c.textView.textContainerInset.width, 200, "centred, not pushed aside")
+        XCTAssertEqual(try XCTUnwrap(c.pageFloatRect).maxX, centredRight(), accuracy: 0.5, "flush with the column's right edge")
         c.scrollView.frame = NSRect(x: 0, y: 0, width: 1000, height: 400)
         window.layoutIfNeeded()
-        XCTAssertEqual(container.size.width, 600, accuracy: 0.5)
-        XCTAssertEqual(c.textView.textContainerInset.width, 1000 - 274 - 600)
-
-        // 900 wide cannot fit both: the column gives up width instead of sliding under it.
-        c.scrollView.frame = NSRect(x: 0, y: 0, width: 900, height: 400)
-        window.layoutIfNeeded()
-        XCTAssertEqual(c.textView.textContainerInset.width, 28)
-        XCTAssertEqual(container.size.width, 900 - 28 - 274, accuracy: 0.5)
+        XCTAssertEqual(try XCTUnwrap(c.pageFloatRect).maxX, centredRight(), accuracy: 0.5)
     }
 
     func testContextMenuOffersInsertLinkForSelection() {

@@ -286,6 +286,11 @@ enum MainMenu {
         view.addItem(.separator())
         view.addItem(withTitle: "Show Line Numbers", action: #selector(AppDelegate.toggleLineNumbers(_:)), keyEquivalent: "l").keyEquivalentModifierMask = [.command, .shift]
         view.addItem(withTitle: "Show Outline", action: #selector(AppDelegate.toggleOutline(_:)), keyEquivalent: "o").keyEquivalentModifierMask = [.command, .shift]
+        let position = NSMenu(title: "Outline Position")
+        for mode in OutlineMode.allCases {
+            position.addItem(withTitle: mode.title, action: #selector(DocumentWindowController.chooseOutlineMode(_:)), keyEquivalent: "").representedObject = mode.rawValue
+        }
+        view.addItem(submenu(position))
         view.addItem(withTitle: "Vim Mode", action: #selector(AppDelegate.toggleVimMode(_:)), keyEquivalent: "")
         view.addItem(.separator())
         view.addItem(withTitle: "Enter Full Screen", action: #selector(NSWindow.toggleFullScreen(_:)), keyEquivalent: "f").keyEquivalentModifierMask = [.command, .control]

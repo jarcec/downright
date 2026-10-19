@@ -210,52 +210,81 @@ public final class EditorController: NSObject, NSTextViewDelegate, @preconcurren
 
     /// Widest text column in points; 0 means use the full width. The column is centred.
     public var maxContentWidth: CGFloat = 0 { didSet { updateContentInsets() } }
-    /// Width kept clear at the text's trailing edge for chrome that sits beside the text
-    /// rather than over it (the expanded outline). Lines wrap before reaching it. Ignored
-    /// when honouring it would leave less than `minimumColumnWidth` for the text.
-    public var trailingReserve: CGFloat = 0 { didSet { updateContentInsets() } }
     private let baseInset = NSSize(width: 28, height: 24)
-    private let minimumColumnWidth: CGFloat = 240
 
     func updateContentInsets() {
         let available = scrollView.contentSize.width
-        let left0 = baseInset.width
-        var right0 = baseInset.width + trailingReserve
-        if trailingReserve > 0, available - left0 - right0 < minimumColumnWidth { right0 = left0 }
-        var left = left0, right = right0
-        if maxContentWidth > 0 {
-            let centred = ((available - maxContentWidth) / 2).rounded()
-            if centred >= right0 {
-                left = centred; right = centred          // room on both sides: stay centred
-            } else if available - left0 - right0 > maxContentWidth {
-                left = available - right0 - maxContentWidth   // shift just enough to clear the reserve
-            }
+        var inset = baseInset.width
+        if maxContentWidth > 0, available > maxContentWidth + 2 * baseInset.width {
+            inset = ((available - maxContentWidth) / 2).rounded()
         }
-        applyContainerInsets(left: left, right: right)
-    }
-
-    private var trailingInset: CGFloat = 28
-
-    private func applyContainerInsets(left: CGFloat, right: CGFloat) {
-        let changed = abs(textView.textContainerInset.width - left) > 0.5 || abs(trailingInset - right) > 0.5
-        trailingInset = right
+        let changed = abs(textView.textContainerInset.width - inset) > 0.5
         if changed {
-            textView.textContainerInset = NSSize(width: left, height: baseInset.height)
+            textView.textContainerInset = NSSize(width: inset, height: baseInset.height)
         }
         applyContainerWidth()
         if changed { textView.updateBlockCursor() }
     }
 
-    /// The container does not track the view (its trailing inset may differ from the
-    /// leading one), so its width is set here and after every frame change the view applies.
+    /// The container does not track the view: a tracking container is re-sized in every
+    /// layout pass, which fought the hand-set width until layout failed to converge. Its
+    /// width is set here and after every frame change the view applies.
     func applyContainerWidth() {
-        let width = max(0, textView.frame.width - textView.textContainerInset.width - trailingInset)
+        let width = max(0, textView.frame.width - 2 * textView.textContainerInset.width)
         if abs(textContainer.size.width - width) > 0.5 {
             textContainer.size = CGSize(width: width, height: textContainer.size.height)
         }
         // Scrolled tables clamp to the column: a wider window slides them back.
         let changed = engine.setColumnWidth(width)
         if !changed.isEmpty { invalidate(changed) }
+        updatePageFloat()
+    }
+
+    // MARK: - Page float: chrome the text wraps around
+
+    /// Room kept clear at the top-right of the text column for chrome that sits on the
+    /// page (the outline in page mode): lines beside it wrap before it, lines below run
+    /// the full width, and it scrolls with the text. `.zero` keeps nothing clear. Dropped
+    /// while the column is too narrow to leave `minimumColumnWidth` beside it.
+    public var pageFloatSize: CGSize = .zero { didSet { if pageFloatSize != oldValue { updatePageFloat() } } }
+    /// Where the float sits, in text view coordinates; nil while there is none.
+    public private(set) var pageFloatRect: NSRect?
+    /// Fired when `pageFloatRect` moves, grows or goes away.
+    public var onPageFloatChange: (() -> Void)?
+    private let pageFloatGap = CGSize(width: 16, height: 8)
+    private let minimumColumnWidth: CGFloat = 240
+
+    private func updatePageFloat() {
+        guard let container = textContainer as? TableScrollingTextContainer else { return }
+        let width = textContainer.size.width, size = pageFloatSize
+        var exclusion: CGRect? = nil, slot: NSRect? = nil
+        if size.width > 0, size.height > 0, width - size.width - pageFloatGap.width >= minimumColumnWidth {
+            exclusion = CGRect(x: width - size.width - pageFloatGap.width, y: 0,
+                               width: size.width + pageFloatGap.width, height: size.height + pageFloatGap.height)
+            slot = NSRect(x: textView.textContainerInset.width + width - size.width, y: textView.textContainerInset.height,
+                          width: size.width, height: size.height)
+        }
+        let old = container.floatRect
+        if old != exclusion {
+            container.floatRect = exclusion
+            relayoutTop(through: max(old?.maxY ?? 0, exclusion?.maxY ?? 0))
+        }
+        if slot != pageFloatRect {
+            pageFloatRect = slot
+            onPageFloatChange?()
+        }
+    }
+
+    /// Lay out again everything from the top of the document down to `y` (container
+    /// coordinates): the lines that wrapped around the float, or now have to.
+    private func relayoutTop(through y: CGFloat) {
+        let doc = contentStorage.documentRange
+        let end = layoutManager.textLayoutFragment(for: CGPoint(x: 0, y: y))?.rangeInElement.endLocation ?? doc.endLocation
+        guard let range = NSTextRange(location: doc.location, end: end) else { return }
+        layoutManager.invalidateLayout(for: range)
+        layoutManager.ensureLayout(for: range)
+        layoutManager.textViewportLayoutController.layoutViewport()
+        textView.needsDisplay = true
     }
 
     // MARK: - Tables: sideways scrolling
@@ -365,9 +394,7 @@ public final class EditorController: NSObject, NSTextViewDelegate, @preconcurren
 
         let container = TableScrollingTextContainer(size: CGSize(width: 0, height: CGFloat.greatestFiniteMagnitude))
         textContainer = container
-        // The width is set by hand (see `applyContainerWidth`): the trailing inset can differ
-        // from the leading one, and a tracking container would be re-sized symmetrically in
-        // every layout pass, fighting the override until layout fails to converge.
+        // The width is set by hand, see `applyContainerWidth`.
         textContainer.widthTracksTextView = false
         textContainer.lineFragmentPadding = 0
         layoutManager.textContainer = textContainer

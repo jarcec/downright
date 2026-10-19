@@ -20,6 +20,9 @@ final class Settings: ObservableObject {
     @Published var showLineNumbers = true { didSet { changed() } }
     @Published var showOutline = true { didSet { changed() } }
     @Published var outlineCollapsed = false { didSet { changed() } }
+    /// Where the outline sits in a document that has no choice of its own (see
+    /// `OutlineMode.remembered(for:)`).
+    @Published var outlineMode: OutlineMode = .overlay { didSet { changed() } }
     /// Which theme slot the app draws with: a fixed one, or macOS's choice.
     @Published var appearance: Appearance = .system { didSet { changed() } }
     /// What fills each slot.
@@ -43,6 +46,7 @@ final class Settings: ObservableObject {
     static var showLineNumbers: Bool { get { shared.showLineNumbers } set { shared.showLineNumbers = newValue } }
     static var showOutline: Bool { get { shared.showOutline } set { shared.showOutline = newValue } }
     static var outlineCollapsed: Bool { get { shared.outlineCollapsed } set { shared.outlineCollapsed = newValue } }
+    static var outlineMode: OutlineMode { get { shared.outlineMode } set { shared.outlineMode = newValue } }
     static var appearance: Appearance { get { shared.appearance } set { shared.appearance = newValue } }
     static var vimMode: Bool { get { shared.vimMode } set { shared.vimMode = newValue } }
     static var copyRichText: Bool { get { shared.copyRichText } set { shared.copyRichText = newValue } }
@@ -131,6 +135,9 @@ final class Settings: ObservableObject {
     #   marker, cursor, listMarker, rule, inlineCode, codeBlock, quote, quoteBar,
     #   frontmatter and
     #   code<Keyword|Type|String|Comment|Number|Key|Variable|Added|Removed|Meta|Tag|Attribute>.
+    # outline_mode: where the outline sits — "overlay" (over the text, top-right of the
+    #   window) | "page" (on the page; the text wraps around it and it scrolls with it).
+    #   View > Outline Position changes it for one document; that choice is remembered per file.
     # copy_rich_text: when true, ⌘C copies formatted text and ⌘⇧C copies Markdown source
     # font_size: body text size in points (⌘+ / ⌘- / ⌘0 change it too)
     # max_content_width: widest text column in points; 0 uses the whole window
@@ -185,6 +192,7 @@ final class Settings: ObservableObject {
         if case .bool(let b)? = values["line_numbers"] { showLineNumbers = b }
         if case .bool(let b)? = values["outline"] { showOutline = b }
         if case .bool(let b)? = values["outline_collapsed"] { outlineCollapsed = b }
+        if case .string(let s)? = values["outline_mode"], let m = OutlineMode(rawValue: s) { outlineMode = m }
         if case .string(let s)? = values["appearance"], let a = Appearance(rawValue: s) { appearance = a }
         if case .string(let s)? = values["light_theme"], let c = ThemeChoice(rawValue: s) { lightTheme = c }
         if case .string(let s)? = values["dark_theme"], let c = ThemeChoice(rawValue: s) { darkTheme = c }
@@ -234,6 +242,7 @@ final class Settings: ObservableObject {
             "line_numbers": .bool(showLineNumbers),
             "outline": .bool(showOutline),
             "outline_collapsed": .bool(outlineCollapsed),
+            "outline_mode": .string(outlineMode.rawValue),
             "appearance": .string(appearance.rawValue),
             "light_theme": .string(lightTheme.rawValue),
             "dark_theme": .string(darkTheme.rawValue),
@@ -326,5 +335,42 @@ final class Settings: ObservableObject {
         lastWrittenText = text
         apply(TOML.parse(text))
         DebugLog.write("settings reloaded after external change")
+    }
+}
+
+/// Where a document's outline sits.
+enum OutlineMode: String, CaseIterable, Identifiable {
+    /// Pinned to the window's top-right corner, over the text; translucent until hovered.
+    case overlay
+    /// On the page at the top-right of the text column: the text wraps around it and it
+    /// scrolls away with the page.
+    case page
+
+    var id: String { rawValue }
+    var title: String { self == .overlay ? "Over the Text" : "On the Page" }
+
+    // MARK: Per-file choice
+
+    /// A choice made for one file (View > Outline Position) is kept per machine, in defaults,
+    /// keyed by the file's path; the file itself is never touched. Moving or renaming
+    /// the file loses it, and the document falls back to `Settings.outlineMode`.
+    private static let key = "OutlineModeByFile"
+    /// Oldest choices are dropped beyond this many files.
+    private static let limit = 500
+
+    static func remembered(for url: URL?) -> OutlineMode? {
+        guard let path = url?.standardizedFileURL.path,
+              let raw = (UserDefaults.standard.array(forKey: key) as? [[String]])?.last(where: { $0.first == path })?.last
+        else { return nil }
+        return OutlineMode(rawValue: raw)
+    }
+
+    static func remember(_ mode: OutlineMode, for url: URL) {
+        let path = url.standardizedFileURL.path
+        var entries = (UserDefaults.standard.array(forKey: key) as? [[String]]) ?? []
+        entries.removeAll { $0.first == path }
+        entries.append([path, mode.rawValue])
+        if entries.count > limit { entries.removeFirst(entries.count - limit) }
+        UserDefaults.standard.set(entries, forKey: key)
     }
 }

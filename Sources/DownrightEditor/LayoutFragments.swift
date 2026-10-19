@@ -32,9 +32,15 @@ final class DecoratedLayoutFragment: NSTextLayoutFragment {
     }
 
     /// Full container width. The fragment's own width tracks the *text*, which for a
-    /// concealed line is ~0 — backgrounds and rules must span the column instead.
+    /// concealed line is ~0 — backgrounds and rules must span the column instead. Beside a
+    /// page float the column ends where the float begins (table rows pass under it).
     private var columnWidth: CGFloat {
-        textLayoutManager?.textContainer?.size.width ?? layoutFragmentFrame.width
+        let container = textLayoutManager?.textContainer
+        let width = container?.size.width ?? layoutFragmentFrame.width
+        guard let f = (container as? TableScrollingTextContainer)?.floatRect else { return width }
+        if case .table = appearance { return width }
+        let frame = super.layoutFragmentFrame
+        return frame.minY < f.maxY && frame.maxY > f.minY ? min(width, f.minX) : width
     }
 
     /// An indented paragraph's fragment frame starts at the indent, not at the column

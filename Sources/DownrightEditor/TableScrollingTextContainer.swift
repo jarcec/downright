@@ -12,6 +12,10 @@ final class TableScrollingTextContainer: NSTextContainer {
     /// For the line holding the character at this (absolute) index: nil when it is not a
     /// table line, else the horizontal offset of its table (0 when unscrolled).
     var tableShift: (Int) -> CGFloat? = { _ in nil }
+    /// Area at the top-right kept clear for a page float (`EditorController.pageFloatSize`):
+    /// lines level with it end before it. Table rows ignore it — they never wrap — and pass
+    /// under the float.
+    var floatRect: CGRect?
 
     override func lineFragmentRect(forProposedRect proposedRect: CGRect, at characterIndex: Int,
                                    writingDirection baseWritingDirection: NSWritingDirection,
@@ -20,6 +24,8 @@ final class TableScrollingTextContainer: NSTextContainer {
         if let shift = tableShift(characterIndex) {
             r.origin.x -= shift
             r.size.width = 1e7
+        } else if let f = floatRect, r.minY < f.maxY, r.maxY > f.minY, r.maxX > f.minX {
+            r.size.width = max(0, f.minX - r.minX)
         }
         return r
     }

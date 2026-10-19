@@ -30,6 +30,18 @@ final class DocumentWindowController: NSWindowController, NSWindowDelegate {
     let editor: EditorController
     private let gutter: LineNumberGutterView
     private let outline = OutlineOverlayView(frame: .zero)
+    /// On the page the outline scrolls away with the top of the document; this collapsed
+    /// pill then stands in for it in the window's corner.
+    private let outlinePill = OutlineOverlayView(frame: .zero)
+    /// The document's own choice of outline mode (View › Outline Position), if it made
+    /// one; otherwise `Settings.outlineMode` applies.
+    private var chosenOutlineMode: OutlineMode?
+    private var outlineMode: OutlineMode { chosenOutlineMode ?? Settings.outlineMode }
+    private let content = NSView()
+    private lazy var outlineCorner = [outlineTop, outline.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -28)]
+    private var outlineOnPage: (leading: NSLayoutConstraint, top: NSLayoutConstraint)?
+    private lazy var pillTop = outlinePill.topAnchor.constraint(equalTo: notice.bottomAnchor, constant: 12)
+    private var placingOutline = false
     private let statusBar = StatusBarView(frame: .zero)
     private let notice = NoticeBarView(frame: .zero)
     private lazy var outlineTop = outline.topAnchor.constraint(equalTo: notice.bottomAnchor, constant: 12)
@@ -46,6 +58,7 @@ final class DocumentWindowController: NSWindowController, NSWindowDelegate {
         let barHeight = scroll.isFindBarVisible ? (scroll.findBarView?.frame.height ?? 0) : 0
         let constant = 12 + barHeight
         if abs(outlineTop.constant - constant) > 0.5 { outlineTop.constant = constant }
+        if abs(pillTop.constant - constant) > 0.5 { pillTop.constant = constant }
     }
 
     init(document: MarkdownDocument) {
@@ -69,14 +82,15 @@ final class DocumentWindowController: NSWindowController, NSWindowDelegate {
         window.delegate = self
         shouldCascadeWindows = true
 
-        // Content: gutter | scroll view, with the outline top-right beside the text (or
-        // floating over it when collapsed).
-        let container = NSView()
+        // Content: gutter | scroll view, with the outline floating top-right over the text
+        // or, in page mode, on the page inside the text view (see `placeOutline()`).
+        let container = content
         let scroll = editor.scrollView
         scroll.translatesAutoresizingMaskIntoConstraints = false
         container.addSubview(gutter)
         container.addSubview(scroll)
         container.addSubview(outline)
+        container.addSubview(outlinePill)
         container.addSubview(statusBar)
         container.addSubview(notice)
         NSLayoutConstraint.activate([
@@ -93,9 +107,9 @@ final class DocumentWindowController: NSWindowController, NSWindowDelegate {
             scroll.bottomAnchor.constraint(equalTo: statusBar.topAnchor),
             scroll.leadingAnchor.constraint(equalTo: gutter.trailingAnchor),
             scroll.trailingAnchor.constraint(equalTo: container.trailingAnchor),
-            outlineTop,
-            outline.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -28),
-        ])
+            pillTop,
+            outlinePill.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -28),
+        ] + outlineCorner)
         window.contentView = container
         // The find bar (⌘F) takes the top of the scroll view and pushes the text area
         // down; keep the outline below it by following the clip view's top edge.
@@ -131,9 +145,17 @@ final class DocumentWindowController: NSWindowController, NSWindowDelegate {
         }
 
         outline.onSelect = { [weak self] offset in self?.editor.scroll(to: offset) }
-        editor.textView.overlayViews = [outline]
+        outlinePill.onSelect = outline.onSelect
+        editor.textView.overlayViews = [outline, outlinePill]
         outline.isCollapsed = Settings.outlineCollapsed
-        outline.onCollapsedChange = { [weak self] in Settings.outlineCollapsed = $0; self?.outlineFootprintChanged() }
+        outline.onCollapsedChange = { Settings.outlineCollapsed = $0 }
+        outline.onSizeChange = { [weak self] in self?.placeOutline() }
+        outlinePill.isCollapsed = true
+        outlinePill.isHidden = true
+        editor.onPageFloatChange = { [weak self] in self?.placeOutline() }
+        scroll.contentView.postsBoundsChangedNotifications = true
+        NotificationCenter.default.addObserver(self, selector: #selector(editorDidScroll(_:)), name: NSView.boundsDidChangeNotification, object: scroll.contentView)
+        chosenOutlineMode = OutlineMode.remembered(for: document.fileURL)
         document.externalChangeWhileEdited = { [weak self] in self?.showExternalChangeNotice() }
         if ProcessInfo.processInfo.environment["DOWNRIGHT_DEBUG_NOTICE"] != nil {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in self?.showExternalChangeNotice() }
@@ -151,7 +173,11 @@ final class DocumentWindowController: NSWindowController, NSWindowDelegate {
         editor.baseURL = document.fileURL
         editor.onOpenLink = { [weak self] url in self?.openLinkedDocument(url) ?? false }
         fileURLObserver = document.observe(\.fileURL) { [weak self] doc, _ in
-            Task { @MainActor in self?.editor.baseURL = doc.fileURL }
+            Task { @MainActor in
+                self?.editor.baseURL = doc.fileURL
+                // A choice made while untitled, or under the old name, follows the file.
+                if let self, let url = doc.fileURL, let mode = self.chosenOutlineMode { OutlineMode.remember(mode, for: url) }
+            }
         }
 
         applySettings()
@@ -198,6 +224,7 @@ final class DocumentWindowController: NSWindowController, NSWindowDelegate {
 
     func windowDidResize(_ notification: Notification) {
         outline.maxHeight = max(120, (window?.contentView?.bounds.height ?? 600) * 0.5)
+        outlinePill.maxHeight = outline.maxHeight
         if window?.inLiveResize == false {
             rememberFrame()   // zoom / programmatic resizes
             // Showing or hiding the tab bar resizes the content, and a bar that has just
@@ -257,13 +284,13 @@ final class DocumentWindowController: NSWindowController, NSWindowDelegate {
         gutter.isHidden = !Settings.showLineNumbers
         outline.isHidden = !Settings.showOutline || editor.headings().isEmpty
         outline.isCollapsed = Settings.outlineCollapsed
-        outlineFootprintChanged()
         editor.textView.vim.isEnabled = Settings.vimMode
         editor.textView.copiesRichTextByDefault = Settings.copyRichText
         editor.images.loadsRemoteImages = Settings.loadRemoteImages
         editor.theme = Settings.theme
         editor.maxContentWidth = CGFloat(Settings.maxContentWidth)
         applyTheme()
+        placeOutline()
     }
 
     /// The theme reaches past the text: the gutter, the floating outline, the tab bar and
@@ -271,6 +298,7 @@ final class DocumentWindowController: NSWindowController, NSWindowDelegate {
     private func applyTheme() {
         let theme = editor.theme
         outline.theme = theme
+        outlinePill.theme = theme
         gutter.needsDisplay = true
         window?.backgroundColor = theme.backgroundColor
         statusBar.theme = theme
@@ -312,22 +340,83 @@ final class DocumentWindowController: NSWindowController, NSWindowDelegate {
         gutter.recomputeThickness()
         gutter.needsDisplay = true
         outline.reload(editor.headings())
+        outlinePill.reload(editor.headings())
         outline.isHidden = !Settings.showOutline || editor.headings().isEmpty
-        outlineFootprintChanged()
+        placeOutline()
         stats = editor.statistics()
         statusBar.trailingText = editor.detectedDialect.summary
         updateStatusLeading()
     }
 
-    /// The expanded outline sits beside the text, not over it: the text column keeps its
-    /// width clear and wraps before it. The collapsed pill floats as before.
-    private func outlineFootprintChanged() {
-        if editor.trailingReserve != outline.footprint { editor.trailingReserve = outline.footprint }
+    // MARK: - Outline placement
+
+    /// Over the text the outline is pinned to the window's corner. On the page it is a
+    /// subview of the text view, in the slot the editor keeps clear at the top of the
+    /// column, so the text wraps around it and it scrolls with the page; when the column
+    /// is too narrow to keep that slot, it falls back to the corner.
+    private func placeOutline() {
+        guard !placingOutline else { return }
+        placingOutline = true
+        defer { placingOutline = false }
+        let wantsPage = outlineMode == .page && !outline.isHidden
+        editor.pageFloatSize = wantsPage ? outline.panelSize : .zero
+        let textView = editor.textView
+        if wantsPage, let slot = editor.pageFloatRect {
+            if outline.superview !== textView {
+                outline.removeFromSuperview()
+                textView.addSubview(outline)
+                let pinned = (outline.leadingAnchor.constraint(equalTo: textView.leadingAnchor),
+                              outline.topAnchor.constraint(equalTo: textView.topAnchor))
+                NSLayoutConstraint.activate([pinned.0, pinned.1])
+                outlineOnPage = pinned
+            }
+            outlineOnPage?.leading.constant = slot.minX
+            outlineOnPage?.top.constant = slot.minY
+            outline.floatsOverText = false
+        } else {
+            if outline.superview !== content {
+                outline.removeFromSuperview()
+                outlineOnPage = nil
+                content.addSubview(outline, positioned: .below, relativeTo: outlinePill)
+                NSLayoutConstraint.activate(outlineCorner)
+            }
+            outline.floatsOverText = true
+        }
+        updateOutlinePill()
+    }
+
+    @objc private func editorDidScroll(_ note: Notification) { updateOutlinePill() }
+
+    /// Show the pill once the outline on the page has scrolled out of sight (less than its
+    /// header left showing); hide it, collapsed again, when the outline comes back.
+    private func updateOutlinePill() {
+        var show = false
+        if outline.superview === editor.textView, !outline.isHidden, let slot = editor.pageFloatRect {
+            show = slot.maxY - editor.scrollView.documentVisibleRect.minY < 24
+        }
+        if !show, !outlinePill.isHidden { outlinePill.isCollapsed = true }
+        if outlinePill.isHidden == show { outlinePill.isHidden = !show }
+    }
+
+    /// View › Outline Position: this document only, remembered for its file.
+    @objc func chooseOutlineMode(_ sender: NSMenuItem) {
+        guard let raw = sender.representedObject as? String, let mode = OutlineMode(rawValue: raw) else { return }
+        chosenOutlineMode = mode
+        if let url = (document as? NSDocument)?.fileURL { OutlineMode.remember(mode, for: url) }
+        placeOutline()
+    }
+
+    @objc func validateMenuItem(_ item: NSMenuItem) -> Bool {
+        if item.action == #selector(chooseOutlineMode(_:)) {
+            item.state = (item.representedObject as? String) == outlineMode.rawValue ? .on : .off
+        }
+        return true
     }
 
     private func selectionChanged() {
         gutter.needsDisplay = true
         outline.highlightHeading(containing: editor.textView.selectedRange().location)
+        outlinePill.highlightHeading(containing: editor.textView.selectedRange().location)
         updateStatusLeading()
     }
 

@@ -67,6 +67,12 @@ struct SettingsView: View {
             Section("Editor") {
                 Toggle("Show line numbers", isOn: $settings.showLineNumbers)
                 Toggle("Show outline", isOn: $settings.showOutline)
+                Picker("Outline", selection: $settings.outlineMode) {
+                    ForEach(OutlineMode.allCases) { Text($0.title).tag($0) }
+                }
+                .disabled(!settings.showOutline)
+                Text("The default for documents; View › Outline Position changes it for one file, and that choice is remembered.")
+                    .font(.caption).foregroundStyle(.secondary)
             }
             Section("Images") {
                 Toggle("Load images from the web", isOn: $settings.loadRemoteImages)

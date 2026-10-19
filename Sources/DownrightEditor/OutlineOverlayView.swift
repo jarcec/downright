@@ -1,14 +1,18 @@
 import AppKit
 
 /// Compact outline of the document's headings. Click to jump; the heading containing the
-/// caret is highlighted. Expanded, it sits beside the text (the host keeps `footprint`
-/// clear, see `EditorController.trailingReserve`); collapsed to its pill it floats over it.
+/// caret is highlighted. It either floats over the text, translucent until hovered, or
+/// sits on the page with the text wrapping around it (`EditorController.pageFloatSize`).
 @MainActor
 public final class OutlineOverlayView: NSVisualEffectView, NSTableViewDataSource, NSTableViewDelegate {
     public var onSelect: ((Int) -> Void)?
-    /// Width the text should keep clear so the panel does not cover it: the expanded
-    /// panel plus a gap, or nothing while collapsed or hidden.
-    public var footprint: CGFloat { isHidden || isCollapsed ? 0 : expandedWidth + 16 }
+    /// The panel's current size, which the host keeps clear when it sits on the page.
+    public var panelSize: CGSize { CGSize(width: widthConstraint.constant, height: heightConstraint.constant) }
+    /// Called when `panelSize` changes: collapsed or expanded, headings added or removed.
+    public var onSizeChange: (() -> Void)?
+    /// Over the text the panel is translucent until hovered, so the text shows through;
+    /// on the page nothing is under it, and it is solid.
+    public var floatsOverText = true { didSet { if floatsOverText != oldValue { alphaValue = restingAlphaValue } } }
     /// Colours follow the editor's theme, so the panel matches the page it floats over.
     public var theme = Theme() { didSet { applyTheme() } }
     /// Called when the user collapses or expands the panel, so the host can persist it.
@@ -32,9 +36,9 @@ public final class OutlineOverlayView: NSVisualEffectView, NSTableViewDataSource
     private let collapsedWidth: CGFloat = 96
     private var suppressSelection = false
 
-    /// Resting opacity of the collapsed pill, which floats over the text; it becomes solid
-    /// while the pointer is over it. The expanded panel sits beside the text and is solid.
+    /// Resting opacity while floating over the text; it becomes solid under the pointer.
     public var restingAlpha: CGFloat = 0.45
+    private var restingAlphaValue: CGFloat { floatsOverText ? restingAlpha : 1 }
     private var hoverTracking: NSTrackingArea?
 
     public override init(frame frameRect: NSRect) {
@@ -142,7 +146,7 @@ public final class OutlineOverlayView: NSVisualEffectView, NSTableViewDataSource
     private func setSolid(_ solid: Bool) {
         NSAnimationContext.runAnimationGroup { ctx in
             ctx.duration = 0.15
-            animator().alphaValue = solid || !isCollapsed ? 1 : restingAlpha
+            animator().alphaValue = solid ? 1 : restingAlphaValue
         }
     }
 
@@ -158,7 +162,7 @@ public final class OutlineOverlayView: NSVisualEffectView, NSTableViewDataSource
         header.image = NSImage(systemSymbolName: symbol, accessibilityDescription: isCollapsed ? "Expand" : "Collapse")
         header.image?.isTemplate = true
         widthConstraint.constant = isCollapsed ? collapsedWidth : expandedWidth
-        alphaValue = isCollapsed ? restingAlpha : 1
+        alphaValue = restingAlphaValue
         updateHeight()
     }
 
@@ -189,10 +193,18 @@ public final class OutlineOverlayView: NSVisualEffectView, NSTableViewDataSource
         }
     }
 
+    private var reportedSize: CGSize?
+
     private func updateHeight() {
-        if isCollapsed { heightConstraint.constant = headerHeight; return }
-        let h = min(maxHeight, CGFloat(headings.count) * rowHeight + headerHeight + 8)
-        heightConstraint.constant = max(h, headerHeight + 8)
+        if isCollapsed {
+            heightConstraint.constant = headerHeight
+        } else {
+            let h = min(maxHeight, CGFloat(headings.count) * rowHeight + headerHeight + 8)
+            heightConstraint.constant = max(h, headerHeight + 8)
+        }
+        guard heightConstraint != nil, widthConstraint != nil, panelSize != reportedSize else { return }
+        reportedSize = panelSize
+        onSizeChange?()
     }
 
     @objc private func rowClicked(_ sender: Any?) {
