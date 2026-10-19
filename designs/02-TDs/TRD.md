@@ -364,7 +364,7 @@ full write-up in `M0-FINDINGS.md`. **Verdict: architecture sound, proceed to M1.
 | 2 | Does caret/hit-testing work through a mapping layer? | **No mapping layer is needed** — length-preserving concealment makes source and display indices identical (§6.4) |
 | 3 | Does a reveal invalidate only that paragraph? | Yes — exactly 2 paragraphs, 0.18 ms, size-independent |
 | 4 | Does a 10 MB document meet budget? | Yes, with ~20× headroom on every interactive operation. Full-document layout (11.9 s) must never be triggered — new constraint R8 |
-| 5 | Do custom fragments/attachments compose? | Not yet exercised. Deferred to M3; the mechanism is attribute-based so no conflict is expected |
+| 5 | Do custom fragments/attachments compose? | **Yes** (images, Oct 2026). An `NSTextAttachment` on the `!` of `![alt](src)` — drawn by the fragment, no view provider — lays out, hit-tests and reveals inside `DecoratedLayoutFragment` with the display string still length-identical; `ImageTests` renders it to pixels |
 
 **Newly discovered, not previously anticipated:** attributes alone cannot collapse a line's
 height, so hiding whole lines (code fences) requires a custom layout fragment (R9).

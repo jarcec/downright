@@ -61,7 +61,7 @@ public final class MarkdownContentStorageDelegate: NSObject, @preconcurrency NST
 
         let ps = NSMutableParagraphStyle()
         ps.lineBreakMode = d.lineBreakMode
-        ps.lineHeightMultiple = d.lineHeightMultiple
+        ps.lineHeightMultiple = (!revealed ? d.concealedLineHeightMultiple : nil) ?? d.lineHeightMultiple
         ps.headIndent = d.headIndent
         ps.firstLineHeadIndent = d.firstLineHeadIndent
         ps.paragraphSpacingBefore = d.spacingBefore
@@ -99,6 +99,8 @@ public final class MarkdownContentStorageDelegate: NSObject, @preconcurrency NST
             out.addAttribute(.kern, value: v, range: rel)
         case .toolTip(let s):
             out.addAttribute(.toolTip, value: s, range: rel)
+        case .attachment(let a):
+            out.addAttribute(.attachment, value: a, range: rel)
         case .traits(let traits):
             out.enumerateAttribute(.font, in: rel) { value, r, _ in
                 let f = (value as? NSFont) ?? NSFont.systemFont(ofSize: NSFont.systemFontSize)

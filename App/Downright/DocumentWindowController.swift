@@ -11,6 +11,9 @@ final class DocumentWindowController: NSWindowController, NSWindowDelegate {
     /// the rest join it. Separate requests get separate windows.
     private static var inOpenBatch = false
     private static var batchHost: NSWindow?
+    /// A document opened by following a link becomes a tab of the window it was
+    /// clicked in, whichever window happens to be last in the list.
+    private static var linkHost: NSWindow?
 
     static func beginOpenBatch() {
         inOpenBatch = true
@@ -32,6 +35,8 @@ final class DocumentWindowController: NSWindowController, NSWindowDelegate {
     private lazy var outlineTop = outline.topAnchor.constraint(equalTo: notice.bottomAnchor, constant: 12)
     /// Live while this window hosts the tab bar; see `observeTabGroup()`.
     private var tabGroupObservers: [NSKeyValueObservation] = []
+    /// Save As moves the document: relative image paths follow it.
+    private var fileURLObserver: NSKeyValueObservation?
 
     /// Keep the outline below the find bar. Modern NSScrollView floats the bar over the
     /// top of the scroll view and offsets the text with content insets, so the clip view's
@@ -100,7 +105,10 @@ final class DocumentWindowController: NSWindowController, NSWindowDelegate {
         // key window, which does not exist yet when several files arrive in one open
         // request (`downright a.md b.md`), so do it explicitly.
         DebugLog.write("window for \(document.fileURL?.lastPathComponent ?? "untitled"): standalone=\(Self.nextWindowOpensStandalone) inBatch=\(Self.inOpenBatch) host=\(Self.batchHost != nil) visibleDocWindows=\(NSApp.windows.filter { $0.isVisible && $0.windowController is DocumentWindowController }.count)")
-        if Self.nextWindowOpensStandalone {
+        if let host = Self.linkHost, host.isVisible, host.tabbingIdentifier == window.tabbingIdentifier {
+            Self.linkHost = nil
+            host.addTabbedWindow(window, ordered: .above)
+        } else if Self.nextWindowOpensStandalone {
             Self.nextWindowOpensStandalone = false
             // Disallow tabbing while the window is shown — with "Prefer tabs: Always" in
             // System Settings, .automatic would still tab it onto the key window — then
@@ -140,6 +148,11 @@ final class DocumentWindowController: NSWindowController, NSWindowDelegate {
         editor.onDocumentChange = { [weak self] in self?.documentChanged() }
         editor.onSelectionChange = { [weak self] in self?.selectionChanged() }
         editor.onFoldsChange = { [weak self] in self?.gutter.needsDisplay = true }
+        editor.baseURL = document.fileURL
+        editor.onOpenLink = { [weak self] url in self?.openLinkedDocument(url) ?? false }
+        fileURLObserver = document.observe(\.fileURL) { [weak self] doc, _ in
+            Task { @MainActor in self?.editor.baseURL = doc.fileURL }
+        }
 
         applySettings()
         documentChanged()
@@ -209,6 +222,31 @@ final class DocumentWindowController: NSWindowController, NSWindowDelegate {
         ])
     }
 
+    // MARK: - Links
+
+    /// A link to a file Downright can open (Markdown, plain text) opens as a tab next
+    /// to this one, or brings its tab forward if it is already open; a `#fragment`
+    /// then jumps to that heading. Anything else is left to the system.
+    private func openLinkedDocument(_ url: URL) -> Bool {
+        guard url.isFileURL, var parts = URLComponents(url: url, resolvingAgainstBaseURL: true) else { return false }
+        let fragment = parts.fragment
+        parts.fragment = nil
+        guard let file = parts.url?.standardizedFileURL else { return false }
+        let controller = NSDocumentController.shared
+        guard (try? controller.typeForContents(of: file)) != nil else { return false }
+        DebugLog.write("link opens \(file.lastPathComponent)\(fragment.map { "#\($0)" } ?? "") as a tab")
+        Self.linkHost = window
+        controller.openDocument(withContentsOf: file, display: true) { doc, _, error in
+            Self.linkHost = nil
+            if let error { docLog.error("link open failed for \(file.path, privacy: .public): \(error.localizedDescription, privacy: .public)") }
+            guard let fragment, !fragment.isEmpty,
+                  let target = doc?.windowControllers.compactMap({ $0 as? DocumentWindowController }).first else { return }
+            // A window that has just been made has not laid out yet; let it, then jump.
+            DispatchQueue.main.async { target.editor.scroll(toHeading: fragment) }
+        }
+        return true
+    }
+
     // MARK: - Settings and chrome
 
     @objc private func defaultsChanged(_ note: Notification) {
@@ -222,6 +260,7 @@ final class DocumentWindowController: NSWindowController, NSWindowDelegate {
         outlineFootprintChanged()
         editor.textView.vim.isEnabled = Settings.vimMode
         editor.textView.copiesRichTextByDefault = Settings.copyRichText
+        editor.images.loadsRemoteImages = Settings.loadRemoteImages
         editor.theme = Settings.theme
         editor.maxContentWidth = CGFloat(Settings.maxContentWidth)
         applyTheme()

@@ -3,8 +3,9 @@ import MarkdownKit
 
 /// Renders Markdown to an attributed string for the pasteboard: markers removed, real
 /// fonts and links, list prefixes, monospace code, and tables as real tables (an
-/// `NSTextTable`, which is what RTF and HTML carry into other apps). Not a layout engine —
-/// images become their alt text.
+/// `NSTextTable`, which is what RTF and HTML carry into other apps). Not a layout engine.
+/// Local images are embedded when a base URL is given to resolve them; otherwise, and
+/// for web images, the alt text stands in.
 @MainActor
 public enum RichTextExporter {
     static func alignment(_ a: TableAlignment) -> NSTextAlignment {
@@ -24,7 +25,10 @@ public enum RichTextExporter {
                                             .characterEncoding: String.Encoding.utf8.rawValue])
     }
 
-    public static func attributedString(markdown: String, theme inputTheme: Theme = Theme(), dialect: Dialect = .gfm) -> NSAttributedString {
+    /// `baseURL` is the document's file URL; `maxImageWidth` is the width images are
+    /// scaled down to fit (a page, or a sensible paste width).
+    public static func attributedString(markdown: String, theme inputTheme: Theme = Theme(), dialect: Dialect = .gfm,
+                                        baseURL: URL? = nil, maxImageWidth: CGFloat = 600) -> NSAttributedString {
         // Keep the sizes, drop the page: this text lands on paper or in someone else's
         // app, where cream-on-dark would be invisible. Only the editor shows a dark theme.
         let theme = inputTheme.forExport
@@ -69,16 +73,27 @@ public enum RichTextExporter {
                     appendInlines(n.children, attrs: a)
                 case .link(let dest, _):
                     var a = attrs
-                    if let u = DecorationEngine.url(dest) { a[.link] = u }
+                    if let u = DecorationEngine.linkURL(dest, baseURL: baseURL) { a[.link] = u }
                     a[.foregroundColor] = theme.accentColor
                     appendInlines(n.children, attrs: a)
                 case .autolink(let dest):
                     var a = attrs
-                    if let u = DecorationEngine.url(dest) { a[.link] = u }
+                    if let u = DecorationEngine.linkURL(dest, baseURL: baseURL) { a[.link] = u }
                     a[.foregroundColor] = theme.accentColor
                     out.append(NSAttributedString(string: dest.hasPrefix("mailto:") ? String(dest.dropFirst(7)) : dest, attributes: a))
-                case .image(_, let alt):
-                    out.append(NSAttributedString(string: alt, attributes: attrs))
+                case .image(let dest, let alt):
+                    if let url = ImageLoader.resolve(dest, baseURL: baseURL), url.isFileURL, let image = ImageLoader.decode(url) {
+                        var size = image.size
+                        if size.width > maxImageWidth { size = CGSize(width: maxImageWidth, height: size.height * maxImageWidth / size.width) }
+                        let a = NSTextAttachment()
+                        a.image = image
+                        a.bounds = CGRect(origin: .zero, size: size)
+                        var attrs = attrs
+                        attrs[.attachment] = a
+                        out.append(NSAttributedString(string: "\u{FFFC}", attributes: attrs))
+                    } else {
+                        out.append(NSAttributedString(string: alt, attributes: attrs))
+                    }
                 case .html:
                     out.append(NSAttributedString(string: src.substring(with: n.range), attributes: attrs))
                 case .footnoteReference(let label):

@@ -149,8 +149,13 @@ that edits text, and it does so as a normal undoable edit of the `[ ]`/`[x]` cha
   corresponding to the clicked glyph, then reveals the paragraph. The caret does not jump
   when the line re-lays out.
 - **Vertical arrow movement** preserves horizontal position visually, as in any editor.
-- **Links** open in the default browser on ⌘-click, and on plain click when the caret is
-  not already in that paragraph. Only `http`, `https`, `mailto`, and `file` schemes are
+- **Links** are followed on ⌘-click, and on plain click when the caret is not already in
+  that paragraph. Web and mail links open in the default browser or mail client. A
+  relative or absolute path resolves against the document's directory like an image's:
+  a file Downright can open (Markdown, plain text) opens as a tab beside the current
+  one, or its tab comes forward if it is already open; any other file goes to the
+  system. A `#fragment` jumps to the heading with that GitHub-style slug, in this
+  document or the linked one. Only `http`, `https`, `mailto`, `file` and paths are
   followed; anything else is inert and shown as plain text.
 - **Images** load from relative paths resolved against the document's directory, plus
   absolute paths and `file:` URLs. Remote (`http(s)`) images are **not** fetched by

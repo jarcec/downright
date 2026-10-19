@@ -39,8 +39,26 @@ public final class EditorController: NSObject, NSTextViewDelegate, @preconcurren
     /// Called after `applyThemeColors()` so the window's own chrome can follow.
     public var onThemeChange: (() -> Void)?
 
+    /// Bitmaps behind `![alt](src)`, shared across engine rebuilds so typing never reloads.
+    public let images = ImageLoader()
+    /// The document's file URL; relative image paths resolve against its directory.
+    public var baseURL: URL? {
+        didSet {
+            guard baseURL != oldValue else { return }
+            let changed = engine.dropImageParagraphs()
+            rebuildEngine()
+            // Lines built with the old base were dropped above; new ones build lazily. An
+            // untitled document that just got saved has placeholders to replace: redo all.
+            invalidate(oldValue == nil || baseURL == nil ? [NSRange(location: 0, length: textStorage.length)] : changed)
+        }
+    }
+
+    private func imageDidLoad(_ url: URL) {
+        invalidate(engine.dropImageParagraphs(for: url))
+    }
+
     private func rebuildEngine() {
-        engine = DecorationEngine(document: document, lines: lines, theme: theme, sourceMode: mode == .raw)
+        engine = DecorationEngine(document: document, lines: lines, theme: theme, sourceMode: mode == .raw, images: images, baseURL: baseURL)
         engine.setColumnWidth(textContainer.size.width)
         pruneFolds()
         engine.hiddenLines = hiddenLines()
@@ -343,7 +361,7 @@ public final class EditorController: NSObject, NSTextViewDelegate, @preconcurren
         let text = textStorage.string
         self.document = MarkdownParser.parse(text, dialect: .gfm)
         self.lines = LineIndex(text)
-        self.engine = DecorationEngine(document: document, lines: lines, theme: theme)
+        self.engine = DecorationEngine(document: document, lines: lines, theme: theme, images: images)
 
         let container = TableScrollingTextContainer(size: CGSize(width: 0, height: CGFloat.greatestFiniteMagnitude))
         textContainer = container
@@ -365,6 +383,11 @@ public final class EditorController: NSObject, NSTextViewDelegate, @preconcurren
         layoutManager.delegate = self
         textStorage.delegate = self
         container.tableShift = { [weak self] index in self?.engine.tableLineShift(at: index) }
+        images.onLoad = { [weak self] url in self?.imageDidLoad(url) }
+        images.onReset = { [weak self] in
+            guard let self else { return }
+            self.invalidate(self.engine.dropImageParagraphs())
+        }
 
         configureTextView()
         updateReveal()
@@ -798,12 +821,49 @@ public final class EditorController: NSObject, NSTextViewDelegate, @preconcurren
         textView.window?.makeFirstResponder(textView)
     }
 
+    /// Asked first when a link is clicked; return true to claim it. The app uses this to
+    /// open a linked Markdown file as a tab instead of handing it to the system.
+    public var onOpenLink: ((URL) -> Bool)?
+
     public func textView(_ textView: NSTextView, clickedOnLink link: Any, at charIndex: Int) -> Bool {
         let url: URL?
         if let u = link as? URL { url = u } else if let s = link as? String { url = URL(string: s) } else { url = nil }
-        guard let url, let scheme = url.scheme?.lowercased(), ["http", "https", "mailto", "file"].contains(scheme) else { return true }
-        NSWorkspace.shared.open(url)
+        guard let url else { return true }
+        open(url)
         return true
+    }
+
+    /// Follow a link the way a click does: an anchor jumps to its heading, the app may
+    /// claim the rest, and anything left goes to the system (PRD §7.1: only `http`,
+    /// `https`, `mailto` and `file` are followed).
+    public func open(_ url: URL) {
+        if url.scheme == nil, let fragment = url.fragment {
+            scroll(toHeading: fragment)
+            return
+        }
+        if onOpenLink?(url) == true { return }
+        guard DecorationEngine.followedSchemes.contains(url.scheme?.lowercased() ?? "") else { return }
+        NSWorkspace.shared.open(url)
+    }
+
+    /// Move to the heading an anchor names, matching the way GitHub slugs titles.
+    /// Returns false when no heading matches.
+    @discardableResult
+    public func scroll(toHeading anchor: String) -> Bool {
+        let wanted = Self.slug(anchor.removingPercentEncoding ?? anchor)
+        guard let h = headings().first(where: { Self.slug($0.title) == wanted }) else { return false }
+        scroll(to: h.offset)
+        return true
+    }
+
+    /// GitHub-style heading anchor: lowercased, punctuation dropped, spaces to hyphens.
+    static func slug(_ title: String) -> String {
+        var out = ""
+        for ch in title.lowercased() {
+            if ch == " " || ch == "-" { out.append("-") }
+            else if ch.isLetter || ch.isNumber || ch == "_" { out.append(ch) }
+        }
+        return out
     }
 
     // MARK: - NSTextLayoutManagerDelegate
@@ -856,14 +916,46 @@ public final class EditorController: NSObject, NSTextViewDelegate, @preconcurren
     // MARK: - Interactions used by the text view
 
     /// Source offset for a point in the text view's coordinates.
-    func characterIndex(at point: NSPoint) -> Int? {
+    func characterIndex(at point: NSPoint) -> Int? { hit(at: point)?.offset }
+
+    /// The character under `point` (text view coordinates), and whether the point lies
+    /// on its glyphs rather than in the blank space past the line's end.
+    private func hit(at point: NSPoint) -> (offset: Int, onGlyph: Bool)? {
         let p = CGPoint(x: point.x - textView.textContainerInset.width, y: point.y - textView.textContainerInset.height)
         guard let fragment = layoutManager.textLayoutFragment(for: p) else { return nil }
         let local = CGPoint(x: p.x - fragment.layoutFragmentFrame.origin.x, y: p.y - fragment.layoutFragmentFrame.origin.y)
         guard let lf = fragment.textLineFragments.first(where: { $0.typographicBounds.contains(CGPoint(x: max($0.typographicBounds.minX, local.x), y: local.y)) }) ?? fragment.textLineFragments.first else { return nil }
         let idx = lf.characterIndex(for: local)
         guard idx != NSNotFound, let elementRange = fragment.textElement?.elementRange else { return nil }
-        return contentStorage.offset(from: contentStorage.documentRange.location, to: elementRange.location) + idx
+        let onGlyph = lf.typographicBounds.contains(local)
+        return (contentStorage.offset(from: contentStorage.documentRange.location, to: elementRange.location) + idx, onGlyph)
+    }
+
+    /// The link whose text is under `point`, as the rendered paragraph carries it. The
+    /// text storage itself has no link attributes (they are decoration), so NSTextView
+    /// never sees these clicks; the text view asks here instead.
+    public func link(at point: NSPoint) -> URL? {
+        guard let (offset, onGlyph) = hit(at: point), onGlyph else { return nil }
+        return link(atOffset: offset)
+    }
+
+    /// The link covering `offset`, if its paragraph's decoration has one there.
+    public func link(atOffset offset: Int) -> URL? {
+        guard offset < textStorage.length else { return nil }
+        for run in engine.decoration(forParagraphAt: offset).styles {
+            if case .link(let url) = run.op, run.range.contains(offset) { return url }
+        }
+        return nil
+    }
+
+    /// Whether a plain click follows a link at `offset` (PRD §7.1): always when the
+    /// document is read-only, otherwise only when the caret is not already in that
+    /// paragraph, so a second click edits the link instead of leaving.
+    public func plainClickFollowsLink(at offset: Int) -> Bool {
+        if mode == .view { return true }
+        let paragraph = lines.paragraphRange(ofLine: lines.line(containing: offset))
+        let caret = textView.selectedRange().location
+        return !(caret >= paragraph.location && caret <= NSMaxRange(paragraph))
     }
 
     /// Toggle a task checkbox if `offset` lands on one in a concealed paragraph.

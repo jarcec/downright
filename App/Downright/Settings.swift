@@ -36,6 +36,8 @@ final class Settings: ObservableObject {
     @Published var fontSize: Double = 15 { didSet { changed() } }
     /// Maximum text column width in points; 0 = use the full window.
     @Published var maxContentWidth: Double = 0 { didSet { changed() } }
+    /// Fetch `![alt](https://…)` images. Off by default: opening a file should not phone home.
+    @Published var loadRemoteImages = false { didSet { changed() } }
 
     // Static accessors keep call sites short.
     static var showLineNumbers: Bool { get { shared.showLineNumbers } set { shared.showLineNumbers = newValue } }
@@ -46,6 +48,7 @@ final class Settings: ObservableObject {
     static var copyRichText: Bool { get { shared.copyRichText } set { shared.copyRichText = newValue } }
     static var fontSize: Double { get { shared.fontSize } set { shared.fontSize = min(max(newValue, 9), 40) } }
     static var maxContentWidth: Double { get { shared.maxContentWidth } set { shared.maxContentWidth = newValue } }
+    static var loadRemoteImages: Bool { get { shared.loadRemoteImages } set { shared.loadRemoteImages = newValue } }
 
     /// The colour selection as a whole.
     static var selection: ThemeSelection {
@@ -131,6 +134,7 @@ final class Settings: ObservableObject {
     # copy_rich_text: when true, ⌘C copies formatted text and ⌘⇧C copies Markdown source
     # font_size: body text size in points (⌘+ / ⌘- / ⌘0 change it too)
     # max_content_width: widest text column in points; 0 uses the whole window
+    # remote_images: when true, images with http(s) sources are fetched; local files always show
 
     """
 
@@ -188,6 +192,7 @@ final class Settings: ObservableObject {
         if case .bool(let b)? = values["copy_rich_text"] { copyRichText = b }
         if case .int(let n)? = values["font_size"] { fontSize = Double(n) }
         if case .int(let n)? = values["max_content_width"] { maxContentWidth = Double(n) }
+        if case .bool(let b)? = values["remote_images"] { loadRemoteImages = b }
         customLight = Self.colors(in: values, prefix: "colors.light.")
         customDark = Self.colors(in: values, prefix: "colors.dark.")
         migrateSingleTheme(values)
@@ -236,6 +241,7 @@ final class Settings: ObservableObject {
             "copy_rich_text": .bool(copyRichText),
             "font_size": .int(Int(fontSize.rounded())),
             "max_content_width": .int(Int(maxContentWidth.rounded())),
+            "remote_images": .bool(loadRemoteImages),
         ]
         // Custom colours are written only once there are some, so the built-ins can evolve.
         for (name, hex) in customLight { v["colors.light.\(name)"] = .string(hex) }

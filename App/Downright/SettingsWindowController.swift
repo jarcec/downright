@@ -68,6 +68,12 @@ struct SettingsView: View {
                 Toggle("Show line numbers", isOn: $settings.showLineNumbers)
                 Toggle("Show outline", isOn: $settings.showOutline)
             }
+            Section("Images") {
+                Toggle("Load images from the web", isOn: $settings.loadRemoteImages)
+                Text("Images on disk always show. Web images are fetched only when this is on, so opening a document does not contact other servers.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
             Section("Copy") {
                 Toggle("⌘C copies formatted text", isOn: $settings.copyRichText)
                 Text((settings.copyRichText ? "⌘⇧C copies the Markdown source." : "⌘C copies the Markdown source; ⌘⇧C copies formatted text for pasting into mail, Slack or documents.")

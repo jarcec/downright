@@ -61,8 +61,8 @@ final class MarkdownDocument: NSDocument {
     private func printView(for printInfo: NSPrintInfo) -> NSTextView {
         var theme = Settings.theme
         theme.bodySize = 11
-        let rich = RichTextExporter.attributedString(markdown: textStorage.string, theme: theme)
         let width = printInfo.imageablePageBounds.width
+        let rich = RichTextExporter.attributedString(markdown: textStorage.string, theme: theme, baseURL: fileURL, maxImageWidth: width)
         let view = NSTextView(frame: NSRect(x: 0, y: 0, width: width, height: 10))
         view.textContainerInset = .zero
         view.isVerticallyResizable = true

@@ -97,9 +97,17 @@ public final class MarkdownTextView: NSTextView {
     }
 
     public override func mouseDown(with event: NSEvent) {
-        if let controller, event.clickCount == 1, event.modifierFlags.intersection([.command, .shift, .option]).isEmpty {
+        if let controller, event.clickCount == 1 {
+            let mods = event.modifierFlags.intersection([.command, .shift, .option, .control])
             let p = convert(event.locationInWindow, from: nil)
-            if let offset = controller.characterIndex(at: p), controller.toggleTask(at: offset) { return }
+            if mods.isEmpty, let offset = controller.characterIndex(at: p), controller.toggleTask(at: offset) { return }
+            // Links: ⌘-click always follows; a plain click follows unless the caret is
+            // already in the paragraph (PRD §7.1), in which case it edits the link.
+            if mods == .command || mods.isEmpty, let url = controller.link(at: p),
+               mods == .command || controller.plainClickFollowsLink(at: controller.characterIndex(at: p) ?? 0) {
+                controller.open(url)
+                return
+            }
         }
         super.mouseDown(with: event)
     }
@@ -185,7 +193,7 @@ public final class MarkdownTextView: NSTextView {
         let sel = selectedRange()
         guard sel.length > 0 else { NSSound.beep(); return }
         let markdown = (string as NSString).substring(with: sel)
-        let rich = RichTextExporter.attributedString(markdown: markdown, theme: controller?.theme ?? Theme())
+        let rich = RichTextExporter.attributedString(markdown: markdown, theme: controller?.theme ?? Theme(), baseURL: controller?.baseURL)
         let pb = NSPasteboard.general
         pb.clearContents()
         pb.writeObjects([rich])   // RTF + plain text
@@ -240,7 +248,11 @@ public final class MarkdownTextView: NSTextView {
     public override func mouseMoved(with event: NSEvent) {
         if pointerIsOverOverlay(event) { hideTableHandles(); return }   // NSTextView would re-set the I-beam
         super.mouseMoved(with: event)
-        updateTableHandles(at: convert(event.locationInWindow, from: nil))
+        let p = convert(event.locationInWindow, from: nil)
+        updateTableHandles(at: p)
+        // NSTextView only hands out the pointing hand for links in its text storage;
+        // ours are decoration, so set it here.
+        if controller?.link(at: p) != nil { NSCursor.pointingHand.set() }
     }
 
     public override func mouseExited(with event: NSEvent) {

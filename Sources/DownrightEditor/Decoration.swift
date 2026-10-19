@@ -15,6 +15,8 @@ public enum StyleOp {
     case kern(CGFloat)
     /// Hover tooltip (link destinations).
     case toolTip(String)
+    /// An inline attachment (a rendered image) on a single U+FFFC character.
+    case attachment(NSTextAttachment)
 }
 
 public struct StyleRun {
@@ -73,6 +75,9 @@ public struct ParagraphDecoration {
     public var headIndent: CGFloat = 0
     public var spacingBefore: CGFloat = 0
     public var lineHeightMultiple: CGFloat = 1
+    /// Overrides `lineHeightMultiple` while concealed: a line showing an image must not
+    /// multiply the image's height into blank space.
+    public var concealedLineHeightMultiple: CGFloat? = nil
     public var role: BlockRole = .none
     /// Clickable task checkbox on this line, if any.
     public var task: (range: NSRange, checked: Bool)?

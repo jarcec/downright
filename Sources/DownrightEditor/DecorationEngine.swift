@@ -11,10 +11,17 @@ public final class DecorationEngine {
     /// Raw Markdown mode: monospace source with colour hints only — no typography, block
     /// decorations, substitutions or table layout.
     public let sourceMode: Bool
+    /// Bitmaps behind `![alt](src)`; nil renders images as their dimmed source.
+    public let images: ImageLoader?
+    /// The document's own URL, which relative image paths resolve against.
+    public let baseURL: URL?
     /// Lines inside folded sections (set by the controller before decorations are built).
     public var hiddenLines: Set<Int> = [] { didSet { cache.removeAll() } }
     private var cache: [Int: ParagraphDecoration] = [:]
     private var tableLayouts: [Int: TableLayout] = [:]
+    /// Paragraph starts of the built lines that show each image, so a load or a width
+    /// change rebuilds exactly those.
+    private var imageSites: [URL: Set<Int>] = [:]
     /// Highlight tokens per fenced code block (absolute source ranges), keyed by block start.
     private var codeTokens: [Int: [(NSRange, CodeToken)]] = [:]
     private let spaceWidth: CGFloat
@@ -53,7 +60,8 @@ public final class DecorationEngine {
     private var tableScrolls: [Int: CGFloat] = [:]
 
     /// Sets the column width and returns the ranges of the scrolled tables whose
-    /// effective offset changed with it.
+    /// effective offset changed with it, plus every paragraph showing an image, which
+    /// is sized to the column.
     @discardableResult
     public func setColumnWidth(_ width: CGFloat) -> [NSRange] {
         guard abs(width - columnWidth) > 0.5 else { return [] }
@@ -61,6 +69,90 @@ public final class DecorationEngine {
         columnWidth = width
         return before.compactMap { start, old in
             abs(tableScroll(blockStart: start) - old) > 0.5 ? tableBlock(at: start)?.range : nil
+        } + dropImageParagraphs()
+    }
+
+    // MARK: - Images
+
+    /// Forget the built decorations of the paragraphs showing `url` (every image when
+    /// nil) and return their ranges for the controller to relay out. A paragraph inside
+    /// a table takes its whole table with it: the image sets its column's width.
+    @discardableResult
+    public func dropImageParagraphs(for url: URL? = nil) -> [NSRange] {
+        let keys: Set<Int> = url.map { imageSites[$0] ?? [] } ?? imageSites.values.reduce(into: Set()) { $0.formUnion($1) }
+        if let url { imageSites[url] = nil } else { imageSites.removeAll() }
+        var out: [NSRange] = []
+        for k in keys {
+            if let table = tableBlock(at: k) {
+                tableLayouts[table.range.location] = nil
+                for key in cache.keys where table.range.contains(key) { cache[key] = nil }
+                out.append(table.range)
+            } else {
+                cache[k] = nil
+                out.append(lines.paragraphRange(ofLine: lines.line(containing: k)))
+            }
+        }
+        return out
+    }
+
+    /// Replace the image construct with its bitmap while concealed: the `!` becomes the
+    /// attachment character and carries the image, the rest of `![alt](src)` is hidden.
+    /// Revealed, the source shows and the image does not (PRD §7.2).
+    private func imageInline(_ r: NSRange, destination: String, alt: String, cr: NSRange, into d: inout ParagraphDecoration) {
+        guard let images, !sourceMode, cr.contains(r.location) else { return }
+        let url = ImageLoader.resolve(destination, baseURL: baseURL)
+        let name = (destination as NSString).lastPathComponent
+        let label = alt.isEmpty ? name : alt
+        let image: NSImage
+        switch url.map({ images.image(for: $0) }) {
+        case .loaded(let img)?: image = img
+        case .loading?: image = placeholder(symbol: "photo", text: label)
+        case .remote?: image = placeholder(symbol: "globe", text: label)
+        case .failed?, nil: image = placeholder(symbol: "exclamationmark.triangle", text: alt.isEmpty ? name : "\(alt) (\(name))")
+        }
+        if let url { imageSites[url, default: []].insert(lines.lineStarts[lines.line(containing: r.location)]) }
+
+        // Fit the column, never scale up.
+        var size = image.size
+        if columnWidth < 1e6 {
+            let maxWidth = max(48, columnWidth - d.headIndent)
+            if size.width > maxWidth { size = CGSize(width: maxWidth, height: size.height * maxWidth / size.width) }
+        }
+        let attachment = NSTextAttachment()
+        attachment.image = image
+        attachment.bounds = CGRect(origin: .zero, size: size)
+        attachment.allowsTextAttachmentView = false   // drawn by the layout fragment, like any glyph
+
+        let first = NSRange(location: r.location, length: 1)
+        d.substitutions.append((r.location, 0xFFFC))
+        d.concealedStyles.append(StyleRun(first, .font(theme.bodyFont)))
+        d.concealedStyles.append(StyleRun(first, .attachment(attachment)))
+        if let rest = NSRange(location: r.location + 1, length: r.length - 1).intersection(cr), rest.length > 0 { d.conceal.append(rest) }
+        d.concealedLineHeightMultiple = 1
+    }
+
+    /// A pill standing in for an image that is loading, blocked or missing.
+    private func placeholder(symbol: String, text: String) -> NSImage {
+        let font = NSFont.systemFont(ofSize: theme.bodySize * 0.85)
+        let fg = theme.secondaryColor, bg = theme.codeBackground
+        let label = NSAttributedString(string: text, attributes: [.font: font, .foregroundColor: fg])
+        let icon = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)?
+            .withSymbolConfiguration(.init(pointSize: font.pointSize, weight: .regular).applying(.init(paletteColors: [fg])))
+        let pad: CGFloat = 8, gap: CGFloat = 6
+        let iconSize = icon?.size ?? .zero
+        let labelSize = label.size()
+        let size = CGSize(width: ceil(pad + iconSize.width + (icon == nil ? 0 : gap) + labelSize.width + pad),
+                          height: ceil(max(labelSize.height, iconSize.height) + 8))
+        return NSImage(size: size, flipped: false) { rect in
+            bg.setFill()
+            NSBezierPath(roundedRect: rect, xRadius: 6, yRadius: 6).fill()
+            var x = pad
+            if let icon {
+                icon.draw(in: CGRect(x: x, y: (rect.height - iconSize.height) / 2, width: iconSize.width, height: iconSize.height))
+                x += iconSize.width + gap
+            }
+            label.draw(at: CGPoint(x: x, y: (rect.height - labelSize.height) / 2))
+            return true
         }
     }
 
@@ -130,11 +222,13 @@ public final class DecorationEngine {
         document.path(containing: start).last(where: { if case .table = $0.kind { return true }; return false })
     }
 
-    public init(document: Document, lines: LineIndex, theme: Theme, sourceMode: Bool = false) {
+    public init(document: Document, lines: LineIndex, theme: Theme, sourceMode: Bool = false, images: ImageLoader? = nil, baseURL: URL? = nil) {
         self.document = document
         self.lines = lines
         self.theme = theme
         self.sourceMode = sourceMode
+        self.images = images
+        self.baseURL = baseURL
         self.spaceWidth = theme.spaceWidth
     }
 
@@ -439,15 +533,17 @@ public final class DecorationEngine {
                     d.styles.append(StyleRun(r, .mono))
                     d.styles.append(StyleRun(r, .background(theme.codeBackground)))
                 case .link(let dest, let title):
-                    if let url = Self.url(dest) { d.styles.append(StyleRun(r, .link(url))) }
+                    if let url = Self.linkURL(dest, baseURL: baseURL) { d.styles.append(StyleRun(r, .link(url))) }
                     d.styles.append(StyleRun(r, .foreground(theme.accentColor)))
                     d.styles.append(StyleRun(r, .toolTip(title.map { "\($0) — \(dest)" } ?? dest)))
                 case .autolink(let dest):
-                    if let url = Self.url(dest) { d.styles.append(StyleRun(r, .link(url))) }
+                    if let url = Self.linkURL(dest, baseURL: baseURL) { d.styles.append(StyleRun(r, .link(url))) }
                     d.styles.append(StyleRun(r, .foreground(theme.accentColor)))
                     d.styles.append(StyleRun(r, .toolTip(dest)))
-                case .image:
+                case .image(let dest, let alt):
                     d.styles.append(StyleRun(r, .foreground(theme.secondaryColor)))
+                    d.styles.append(StyleRun(r, .toolTip(alt.isEmpty ? dest : "\(alt) — \(dest)")))
+                    imageInline(r, destination: dest, alt: alt, cr: cr, into: &d)
                 case .html:
                     d.styles.append(StyleRun(r, .mono))
                     d.styles.append(StyleRun(r, .foreground(theme.secondaryColor)))
@@ -457,7 +553,13 @@ public final class DecorationEngine {
                     break
                 }
                 for m in n.markerRanges where NSIntersectionRange(m, cr).length > 0 {
-                    d.conceal.append(m)
+                    // An image's `!` is the attachment character while concealed; it must
+                    // keep a real font, so the conceal range starts after it.
+                    if case .image = n.kind, m.location == r.location, d.substitutions.contains(where: { $0.offset == r.location }) {
+                        if m.length > 1 { d.conceal.append(NSRange(location: m.location + 1, length: m.length - 1)) }
+                    } else {
+                        d.conceal.append(m)
+                    }
                     d.markerStyles.append(StyleRun(m, .foreground(theme.markerColor)))
                 }
                 walk(n.children)
@@ -534,6 +636,13 @@ public final class DecorationEngine {
         inlineStyles(cell.inlines, cr: cell.range, into: &d)
         for run in d.styles { MarkdownContentStorageDelegate.apply(run, to: out, base: cell.range) }
         if !markersVisible {
+            for (offset, ch) in d.substitutions {
+                let i = offset - cell.range.location
+                guard i >= 0, i < out.length else { continue }
+                let attrs = out.attributes(at: i, effectiveRange: nil)
+                out.replaceCharacters(in: NSRange(location: i, length: 1), with: NSAttributedString(string: String(utf16CodeUnits: [ch], count: 1), attributes: attrs))
+            }
+            for run in d.concealedStyles { MarkdownContentStorageDelegate.apply(run, to: out, base: cell.range) }
             for r in d.conceal {
                 if let rel = MarkdownContentStorageDelegate.relative(r, base: cell.range) {
                     out.addAttributes([.font: Theme.concealedFont], range: rel)
@@ -624,4 +733,44 @@ public final class DecorationEngine {
         if let enc = s.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed), let u = URL(string: enc), u.scheme != nil { return u }
         return nil
     }
+
+    /// Schemes a link may carry (PRD §7.1); any other scheme is inert, plain text.
+    public static let followedSchemes: Set<String> = ["http", "https", "mailto", "file"]
+
+    /// The URL a link destination names. A destination with a followed scheme stands
+    /// alone; a path resolves against the document's directory like an image's, keeping
+    /// its `#fragment`; a bare `#fragment` is an anchor into this document (a URL with
+    /// no scheme and only a fragment). Nil for a path in an untitled document and for
+    /// schemes the editor does not follow.
+    public static func linkURL(_ destination: String, baseURL: URL?) -> URL? {
+        let dest = destination.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !dest.isEmpty else { return nil }
+        if let u = url(dest), !isPathLike(u) {
+            guard followedSchemes.contains(u.scheme?.lowercased() ?? "") else { return nil }
+            return u.isFileURL ? withFragment(u.standardizedFileURL, u.fragment) : u
+        }
+        var path = Substring(dest), fragment: String?
+        if let hash = dest.firstIndex(of: "#") {
+            path = dest[..<hash]
+            fragment = String(dest[dest.index(after: hash)...])
+        }
+        if path.isEmpty {
+            guard let fragment, !fragment.isEmpty else { return nil }
+            var c = URLComponents(); c.fragment = fragment
+            return c.url
+        }
+        guard let file = ImageLoader.resolve(String(path), baseURL: baseURL) else { return nil }
+        return withFragment(file, fragment)
+    }
+
+    /// `standardizedFileURL` drops a fragment; this puts it back.
+    private static func withFragment(_ u: URL, _ fragment: String?) -> URL {
+        guard let fragment, !fragment.isEmpty, var c = URLComponents(url: u, resolvingAgainstBaseURL: true) else { return u }
+        c.fragment = fragment
+        return c.url ?? u
+    }
+
+    /// `C:\notes.md` parses as a URL with scheme `c`; a one-letter scheme is a drive
+    /// letter, not a protocol (mirrors `ImageLoader.resolve`).
+    private static func isPathLike(_ u: URL) -> Bool { (u.scheme?.count ?? 0) <= 1 }
 }
