@@ -51,3 +51,24 @@ final class PageFloatRenderingTests: XCTestCase {
         XCTAssertTrue(c.textView.subviews.last === chrome)
     }
 }
+
+@MainActor
+final class OutlineModeButtonTests: XCTestCase {
+    func testModeButtonTogglesAndHidesWhenCollapsed() {
+        let o = OutlineOverlayView(frame: .zero)
+        XCTAssertTrue(o.modeButton.isHidden, "no button until the host offers modes")
+        var toggles = 0
+        o.onToggleMode = { toggles += 1 }
+        o.onPage = false
+        XCTAssertFalse(o.modeButton.isHidden)
+        XCTAssertEqual(o.modeButton.toolTip?.hasPrefix("Pinned"), true)
+        o.modeButton.performClick(nil)
+        XCTAssertEqual(toggles, 1)
+        o.onPage = true
+        XCTAssertEqual(o.modeButton.toolTip?.hasPrefix("On the page"), true)
+        o.isCollapsed = true
+        XCTAssertTrue(o.modeButton.isHidden, "the collapsed pill has no room for it")
+        o.isCollapsed = false
+        XCTAssertFalse(o.modeButton.isHidden)
+    }
+}

@@ -150,6 +150,10 @@ final class DocumentWindowController: NSWindowController, NSWindowDelegate {
         outline.isCollapsed = Settings.outlineCollapsed
         outline.onCollapsedChange = { Settings.outlineCollapsed = $0 }
         outline.onSizeChange = { [weak self] in self?.placeOutline() }
+        outline.onToggleMode = { [weak self] in
+            guard let self else { return }
+            self.setOutlineMode(self.outlineMode == .page ? .overlay : .page)
+        }
         outlinePill.isCollapsed = true
         outlinePill.isHidden = true
         editor.onPageFloatChange = { [weak self] in self?.placeOutline() }
@@ -358,6 +362,7 @@ final class DocumentWindowController: NSWindowController, NSWindowDelegate {
         guard !placingOutline else { return }
         placingOutline = true
         defer { placingOutline = false }
+        outline.onPage = outlineMode == .page
         let wantsPage = outlineMode == .page && !outline.isHidden
         editor.pageFloatSize = wantsPage ? outline.panelSize : .zero
         let textView = editor.textView
@@ -401,6 +406,11 @@ final class DocumentWindowController: NSWindowController, NSWindowDelegate {
     /// View › Outline Position: this document only, remembered for its file.
     @objc func chooseOutlineMode(_ sender: NSMenuItem) {
         guard let raw = sender.representedObject as? String, let mode = OutlineMode(rawValue: raw) else { return }
+        setOutlineMode(mode)
+    }
+
+    /// The menu and the outline's own button: this document only, remembered for its file.
+    private func setOutlineMode(_ mode: OutlineMode) {
         chosenOutlineMode = mode
         if let url = (document as? NSDocument)?.fileURL { OutlineMode.remember(mode, for: url) }
         placeOutline()

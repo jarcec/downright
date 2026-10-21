@@ -10,6 +10,11 @@ public final class OutlineOverlayView: NSVisualEffectView, NSTableViewDataSource
     public var panelSize: CGSize { CGSize(width: widthConstraint.constant, height: heightConstraint.constant) }
     /// Called when `panelSize` changes: collapsed or expanded, headings added or removed.
     public var onSizeChange: (() -> Void)?
+    /// The header's mode button, which moves the outline between floating over the text
+    /// and sitting on the page: nil hides it, otherwise whether it is set to the page.
+    public var onPage: Bool? { didSet { applyModeButton() } }
+    /// Called when the mode button is clicked; the host switches the mode and sets `onPage`.
+    public var onToggleMode: (() -> Void)?
     /// Over the text the panel is translucent until hovered, so the text shows through;
     /// on the page nothing is under it, and it is solid.
     public var floatsOverText = true { didSet { if floatsOverText != oldValue { alphaValue = restingAlphaValue } } }
@@ -28,6 +33,7 @@ public final class OutlineOverlayView: NSVisualEffectView, NSTableViewDataSource
     private let table = NSTableView()
     private let scroll = NSScrollView()
     private let header = NSButton()
+    let modeButton = NSButton()
     private var heightConstraint: NSLayoutConstraint!
     private var widthConstraint: NSLayoutConstraint!
     private let rowHeight: CGFloat = 20
@@ -91,13 +97,29 @@ public final class OutlineOverlayView: NSVisualEffectView, NSTableViewDataSource
         header.focusRingType = .none
         header.toolTip = "Collapse or expand the outline"
 
+        modeButton.isBordered = false
+        modeButton.bezelStyle = .inline
+        modeButton.imagePosition = .imageOnly
+        modeButton.contentTintColor = theme.secondaryColor
+        modeButton.target = self
+        modeButton.action = #selector(toggleMode(_:))
+        modeButton.translatesAutoresizingMaskIntoConstraints = false
+        modeButton.setButtonType(.momentaryChange)
+        modeButton.focusRingType = .none
+
         addSubview(header)
+        addSubview(modeButton)
         addSubview(scroll)
+        headerTrailing = header.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8)
+        headerBesideMode = header.trailingAnchor.constraint(equalTo: modeButton.leadingAnchor, constant: -6)
         NSLayoutConstraint.activate([
             header.topAnchor.constraint(equalTo: topAnchor, constant: 2),
             header.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 10),
-            header.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8),
             header.heightAnchor.constraint(equalToConstant: headerHeight - 4),
+            modeButton.centerYAnchor.constraint(equalTo: header.centerYAnchor),
+            modeButton.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8),
+            modeButton.widthAnchor.constraint(equalToConstant: 16),
+            modeButton.heightAnchor.constraint(equalToConstant: headerHeight - 4),
             scroll.topAnchor.constraint(equalTo: header.bottomAnchor, constant: 2),
             scroll.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -6),
             scroll.leadingAnchor.constraint(equalTo: leadingAnchor),
@@ -108,6 +130,28 @@ public final class OutlineOverlayView: NSVisualEffectView, NSTableViewDataSource
         widthConstraint = widthAnchor.constraint(equalToConstant: expandedWidth)
         widthConstraint.isActive = true
         applyCollapsed()
+    }
+
+    private var headerTrailing: NSLayoutConstraint!
+    private var headerBesideMode: NSLayoutConstraint!
+
+    @objc private func toggleMode(_ sender: Any?) { onToggleMode?() }
+
+    /// Shown while expanded (the collapsed pill has no room). A pin: filled while the
+    /// outline is pinned to the window over the text, outlined while it is on the page.
+    private func applyModeButton() {
+        let shown = onPage != nil && !isCollapsed
+        modeButton.isHidden = !shown
+        headerBesideMode.isActive = shown
+        headerTrailing.isActive = !shown
+        guard let onPage else { return }
+        let (symbol, tip) = onPage
+            ? ("pin", "On the page — click to pin the outline to the window, over the text")
+            : ("pin.fill", "Pinned over the text — click to put the outline on the page, with the text wrapping around it")
+        modeButton.image = NSImage(systemSymbolName: symbol, accessibilityDescription: tip)?
+            .withSymbolConfiguration(.init(pointSize: 10, weight: .medium))
+        modeButton.image?.isTemplate = true
+        modeButton.toolTip = tip
     }
 
     // MARK: - Hover: translucent at rest, solid under the pointer
@@ -163,6 +207,7 @@ public final class OutlineOverlayView: NSVisualEffectView, NSTableViewDataSource
         header.image?.isTemplate = true
         widthConstraint.constant = isCollapsed ? collapsedWidth : expandedWidth
         alphaValue = restingAlphaValue
+        if headerTrailing != nil { applyModeButton() }
         updateHeight()
     }
 
@@ -248,6 +293,7 @@ public final class OutlineOverlayView: NSVisualEffectView, NSTableViewDataSource
     private func applyTheme() {
         layer?.borderColor = theme.rule.cgColor
         header.contentTintColor = theme.secondaryColor
+        modeButton.contentTintColor = theme.secondaryColor
         table.reloadData()
     }
 
