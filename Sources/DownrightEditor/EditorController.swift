@@ -41,6 +41,8 @@ public final class EditorController: NSObject, NSTextViewDelegate, @preconcurren
 
     /// Bitmaps behind `![alt](src)`, shared across engine rebuilds so typing never reloads.
     public let images = ImageLoader()
+    /// ```mermaid diagrams, likewise shared across rebuilds.
+    public let diagrams = DiagramRenderer()
     /// The document's file URL; relative image paths resolve against its directory.
     public var baseURL: URL? {
         didSet {
@@ -57,8 +59,17 @@ public final class EditorController: NSObject, NSTextViewDelegate, @preconcurren
         invalidate(engine.dropImageParagraphs(for: url))
     }
 
+    /// Diagrams are drawn in the colours of one appearance; a theme that follows macOS
+    /// needs them drawn again (or fetched from the cache) when it flips.
+    func effectiveAppearanceDidChange() {
+        let appearance = textView.effectiveAppearance
+        guard diagrams.appearance?.name != appearance.name else { return }
+        diagrams.appearance = appearance
+        invalidate(engine.dropDiagramParagraphs())
+    }
+
     private func rebuildEngine() {
-        engine = DecorationEngine(document: document, lines: lines, theme: theme, sourceMode: mode == .raw, images: images, baseURL: baseURL)
+        engine = DecorationEngine(document: document, lines: lines, theme: theme, sourceMode: mode == .raw, images: images, baseURL: baseURL, diagrams: diagrams)
         engine.setColumnWidth(textContainer.size.width)
         pruneFolds()
         engine.hiddenLines = hiddenLines()
@@ -390,7 +401,7 @@ public final class EditorController: NSObject, NSTextViewDelegate, @preconcurren
         let text = textStorage.string
         self.document = MarkdownParser.parse(text, dialect: .gfm)
         self.lines = LineIndex(text)
-        self.engine = DecorationEngine(document: document, lines: lines, theme: theme, images: images)
+        self.engine = DecorationEngine(document: document, lines: lines, theme: theme, images: images, diagrams: diagrams)
 
         let container = TableScrollingTextContainer(size: CGSize(width: 0, height: CGFloat.greatestFiniteMagnitude))
         textContainer = container
@@ -411,11 +422,16 @@ public final class EditorController: NSObject, NSTextViewDelegate, @preconcurren
         textStorage.delegate = self
         container.tableShift = { [weak self] index in self?.engine.tableLineShift(at: index) }
         images.onLoad = { [weak self] url in self?.imageDidLoad(url) }
+        diagrams.onRender = { [weak self] key in
+            guard let self else { return }
+            self.invalidate(self.engine.dropDiagramParagraphs(for: key))
+        }
         images.onReset = { [weak self] in
             guard let self else { return }
             self.invalidate(self.engine.dropImageParagraphs())
         }
 
+        diagrams.appearance = textView.effectiveAppearance
         configureTextView()
         updateReveal()
     }
@@ -926,6 +942,10 @@ public final class EditorController: NSObject, NSTextViewDelegate, @preconcurren
             return revealed ? .codeBlock(info: info, top: true, bottom: false) : .hidden
         case .fenceClose:
             return revealed ? .codeBlock(info: "", top: false, bottom: true) : .hidden
+        case .diagramFence(let info):
+            return revealed ? .codeBlock(info: info, top: true, bottom: false) : .plain
+        case .diagramSource(let closing):
+            return revealed ? .codeBlock(info: "", top: false, bottom: closing) : .hidden
         case .codeLine(let info, let first, let last):
             // When revealed, the fence lines carry the rounded corners and the label instead
             return .codeBlock(info: revealed ? "" : info, top: first && !revealed, bottom: last && !revealed)

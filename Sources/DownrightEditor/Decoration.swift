@@ -33,6 +33,10 @@ public enum BlockRole: Equatable {
     case fenceOpen(info: String)
     case fenceClose
     case codeLine(info: String, first: Bool, last: Bool)
+    /// A ```mermaid block's opening fence: carries the rendered diagram while concealed.
+    case diagramFence(info: String)
+    /// A line of a diagram's source, or its closing fence: collapsed while the diagram shows.
+    case diagramSource(closing: Bool)
     case indentedCode(first: Bool, last: Bool)
     case setextUnderline
     case thematicBreak

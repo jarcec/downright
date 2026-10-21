@@ -124,6 +124,11 @@ public final class MarkdownTextView: NSTextView {
 
     @objc private func windowKeyDidChange(_ note: Notification) { selectionOverlay.needsDisplay = true }
 
+    public override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        controller?.effectiveAppearanceDidChange()
+    }
+
     /// TextKit 2 relocates the viewport here and rebuilds the layout lazily at the next
     /// draw. NSTextFinder scrolls to the first match and asks for the match rectangles
     /// straight after; with no layout it gets none and draws no highlights until the
@@ -254,7 +259,13 @@ public final class MarkdownTextView: NSTextView {
         let sel = selectedRange()
         guard sel.length > 0 else { NSSound.beep(); return }
         let markdown = (string as NSString).substring(with: sel)
-        let rich = RichTextExporter.attributedString(markdown: markdown, theme: controller?.theme ?? Theme(), baseURL: controller?.baseURL)
+        // Diagrams go out drawn on paper. One not drawn that way yet goes as its source,
+        // and is drawn now, so the next copy has it.
+        let diagrams = controller?.diagrams
+        let rich = RichTextExporter.attributedString(markdown: markdown, theme: controller?.theme ?? Theme(), baseURL: controller?.baseURL) { source, theme in
+            guard case .rendered(let image)? = diagrams?.diagram(for: source, theme: theme, appearance: NSAppearance(named: .aqua)).state else { return nil }
+            return image
+        }
         let pb = NSPasteboard.general
         pb.clearContents()
         pb.writeObjects([rich])   // RTF + plain text

@@ -15,6 +15,8 @@ public final class DecorationEngine {
     public let images: ImageLoader?
     /// The document's own URL, which relative image paths resolve against.
     public let baseURL: URL?
+    /// Draws ```mermaid blocks; nil leaves them as code.
+    public let diagrams: DiagramRenderer?
     /// Lines inside folded sections (set by the controller before decorations are built).
     public var hiddenLines: Set<Int> = [] { didSet { cache.removeAll() } }
     private var cache: [Int: ParagraphDecoration] = [:]
@@ -22,6 +24,8 @@ public final class DecorationEngine {
     /// Paragraph starts of the built lines that show each image, so a load or a width
     /// change rebuilds exactly those.
     private var imageSites: [URL: Set<Int>] = [:]
+    /// Paragraph starts of the built fence lines showing each diagram, by renderer key.
+    private var diagramSites: [String: Set<Int>] = [:]
     /// Highlight tokens per fenced code block (absolute source ranges), keyed by block start.
     private var codeTokens: [Int: [(NSRange, CodeToken)]] = [:]
     private let spaceWidth: CGFloat
@@ -69,7 +73,7 @@ public final class DecorationEngine {
         columnWidth = width
         return before.compactMap { start, old in
             abs(tableScroll(blockStart: start) - old) > 0.5 ? tableBlock(at: start)?.range : nil
-        } + dropImageParagraphs()
+        } + dropImageParagraphs() + dropDiagramParagraphs()
     }
 
     // MARK: - Images
@@ -95,6 +99,69 @@ public final class DecorationEngine {
         return out
     }
 
+    /// Forget the built fence lines showing the diagram with `key` (every diagram when
+    /// nil) and return their ranges for the controller to relay out.
+    @discardableResult
+    public func dropDiagramParagraphs(for key: String? = nil) -> [NSRange] {
+        let keys: Set<Int> = key.map { diagramSites[$0] ?? [] } ?? diagramSites.values.reduce(into: Set()) { $0.formUnion($1) }
+        if let key { diagramSites[key] = nil } else { diagramSites.removeAll() }
+        return keys.map { k in
+            cache[k] = nil
+            return lines.paragraphRange(ofLine: lines.line(containing: k))
+        }
+    }
+
+    /// The source of a ```mermaid block, or nil when it is not one this engine draws
+    /// (no renderer, Raw mode, or nothing between the fences yet).
+    private func diagramSource(_ block: Block, info: String) -> String? {
+        guard diagrams != nil, !sourceMode, DiagramRenderer.isDiagram(info: info) else { return nil }
+        let src = document.sourceString as NSString
+        let text = block.contentRanges.map { src.substring(with: $0) }.joined(separator: "\n")
+        return text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : text
+    }
+
+    /// While concealed, the opening fence of a diagram shows the diagram: its first
+    /// character becomes the attachment, the rest of the line is hidden, and the source
+    /// lines below collapse. Revealed, the block is ordinary code.
+    private func diagramFence(_ source: String, line cr: NSRange, fence: NSRange, into d: inout ParagraphDecoration) {
+        guard let diagrams else { return }
+        let (key, state) = diagrams.diagram(for: source, theme: theme)
+        diagramSites[key, default: []].insert(cr.location)
+        let image: NSImage
+        var tip: String? = nil
+        switch state {
+        case .rendered(let img): image = img
+        case .rendering: image = placeholder(symbol: "flowchart", text: "Drawing diagram…")
+        case .failed(let message):
+            image = placeholder(symbol: "exclamationmark.triangle", text: "Diagram error")
+            tip = message
+        }
+        let at = fence.location
+        attach(image, at: at, maxWidth: columnWidth - d.headIndent, into: &d)
+        if let tip { d.concealedStyles.append(StyleRun(NSRange(location: at, length: 1), .toolTip(tip))) }
+        if at > cr.location { d.conceal.append(NSRange(location: cr.location, length: at - cr.location)) }
+        if cr.end > at + 1 { d.conceal.append(NSRange(location: at + 1, length: cr.end - at - 1)) }
+    }
+
+    /// Show `image` on the character at `offset` while concealed, scaled down to fit
+    /// `maxWidth` (never up).
+    private func attach(_ image: NSImage, at offset: Int, maxWidth: CGFloat, into d: inout ParagraphDecoration) {
+        var size = image.size
+        if columnWidth < 1e6 {
+            let fit = max(48, maxWidth)
+            if size.width > fit { size = CGSize(width: fit, height: size.height * fit / size.width) }
+        }
+        let attachment = NSTextAttachment()
+        attachment.image = image
+        attachment.bounds = CGRect(origin: .zero, size: size)
+        attachment.allowsTextAttachmentView = false   // drawn by the layout fragment, like any glyph
+        let first = NSRange(location: offset, length: 1)
+        d.substitutions.append((offset, 0xFFFC))
+        d.concealedStyles.append(StyleRun(first, .font(theme.bodyFont)))
+        d.concealedStyles.append(StyleRun(first, .attachment(attachment)))
+        d.concealedLineHeightMultiple = 1
+    }
+
     /// Replace the image construct with its bitmap while concealed: the `!` becomes the
     /// attachment character and carries the image, the rest of `![alt](src)` is hidden.
     /// Revealed, the source shows and the image does not (PRD §7.2).
@@ -112,23 +179,8 @@ public final class DecorationEngine {
         }
         if let url { imageSites[url, default: []].insert(lines.lineStarts[lines.line(containing: r.location)]) }
 
-        // Fit the column, never scale up.
-        var size = image.size
-        if columnWidth < 1e6 {
-            let maxWidth = max(48, columnWidth - d.headIndent)
-            if size.width > maxWidth { size = CGSize(width: maxWidth, height: size.height * maxWidth / size.width) }
-        }
-        let attachment = NSTextAttachment()
-        attachment.image = image
-        attachment.bounds = CGRect(origin: .zero, size: size)
-        attachment.allowsTextAttachmentView = false   // drawn by the layout fragment, like any glyph
-
-        let first = NSRange(location: r.location, length: 1)
-        d.substitutions.append((r.location, 0xFFFC))
-        d.concealedStyles.append(StyleRun(first, .font(theme.bodyFont)))
-        d.concealedStyles.append(StyleRun(first, .attachment(attachment)))
+        attach(image, at: r.location, maxWidth: columnWidth - d.headIndent, into: &d)
         if let rest = NSRange(location: r.location + 1, length: r.length - 1).intersection(cr), rest.length > 0 { d.conceal.append(rest) }
-        d.concealedLineHeightMultiple = 1
     }
 
     /// A pill standing in for an image that is loading, blocked or missing.
@@ -222,11 +274,12 @@ public final class DecorationEngine {
         document.path(containing: start).last(where: { if case .table = $0.kind { return true }; return false })
     }
 
-    public init(document: Document, lines: LineIndex, theme: Theme, sourceMode: Bool = false, images: ImageLoader? = nil, baseURL: URL? = nil) {
+    public init(document: Document, lines: LineIndex, theme: Theme, sourceMode: Bool = false, images: ImageLoader? = nil, baseURL: URL? = nil, diagrams: DiagramRenderer? = nil) {
         self.document = document
         self.lines = lines
         self.theme = theme
         self.sourceMode = sourceMode
+        self.diagrams = diagrams
         self.images = images
         self.baseURL = baseURL
         self.spaceWidth = theme.spaceWidth
@@ -451,7 +504,19 @@ public final class DecorationEngine {
         case .fencedCode(let openFence, let closeFence, let info):
             d.styles.append(StyleRun(pr, .font(theme.monoFont)))
             d.lineHeightMultiple = 1.2
-            if cr.contains(openFence.location) || (openFence.length == 0 && cr.location == openFence.location) {
+            let isOpen = cr.contains(openFence.location) || (openFence.length == 0 && cr.location == openFence.location)
+            if let source = diagramSource(leaf, info: info) {
+                if isOpen {
+                    d.role = .diagramFence(info: info)
+                    d.markerStyles.append(StyleRun(openFence, .foreground(theme.markerColor)))
+                    diagramFence(source, line: cr, fence: openFence, into: &d)
+                } else {
+                    let closing = closeFence.map { cr.contains($0.location) || ($0.length == 0 && cr.location == $0.location) } ?? false
+                    d.role = .diagramSource(closing: closing)
+                    d.conceal.append(cr)
+                    if closing, let close = closeFence { d.markerStyles.append(StyleRun(close, .foreground(theme.markerColor))) }
+                }
+            } else if cr.contains(openFence.location) || (openFence.length == 0 && cr.location == openFence.location) {
                 d.role = .fenceOpen(info: info)
                 d.conceal.append(openFence)
                 d.markerStyles.append(StyleRun(openFence, .foreground(theme.markerColor)))

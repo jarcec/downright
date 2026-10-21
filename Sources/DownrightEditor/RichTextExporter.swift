@@ -26,9 +26,12 @@ public enum RichTextExporter {
     }
 
     /// `baseURL` is the document's file URL; `maxImageWidth` is the width images are
-    /// scaled down to fit (a page, or a sensible paste width).
+    /// scaled down to fit (a page, or a sensible paste width). `diagram` returns a
+    /// ```mermaid block's picture drawn in the given theme if it is ready; without one the
+    /// block goes out as code.
     public static func attributedString(markdown: String, theme inputTheme: Theme = Theme(), dialect: Dialect = .gfm,
-                                        baseURL: URL? = nil, maxImageWidth: CGFloat = 600) -> NSAttributedString {
+                                        baseURL: URL? = nil, maxImageWidth: CGFloat = 600,
+                                        diagram: ((String, Theme) -> NSImage?)? = nil) -> NSAttributedString {
         // Keep the sizes, drop the page: this text lands on paper or in someone else's
         // app, where cream-on-dark would be invisible. Only the editor shows a dark theme.
         let theme = inputTheme.forExport
@@ -150,6 +153,22 @@ public enum RichTextExporter {
                         render(rest, indent: indent + CGFloat(listDepth) * 20)
                     }
                     listDepth -= 1
+                case .fencedCode(_, _, let info) where DiagramRenderer.isDiagram(info: info):
+                    let source = lineText(b.contentRanges)
+                    if let image = diagram?(source, theme) {
+                        var size = image.size
+                        if size.width > maxImageWidth { size = CGSize(width: maxImageWidth, height: size.height * maxImageWidth / size.width) }
+                        let a = NSTextAttachment()
+                        a.image = image
+                        a.bounds = CGRect(origin: .zero, size: size)
+                        var attrs = base(theme.bodyFont, indent: indent)
+                        attrs[.attachment] = a
+                        out.append(NSAttributedString(string: "\u{FFFC}\n", attributes: attrs))
+                    } else {
+                        var a = base(theme.monoFont, indent: indent)
+                        a[.backgroundColor] = theme.codeBlockBackground
+                        out.append(NSAttributedString(string: source + "\n", attributes: a))
+                    }
                 case .fencedCode, .indentedCode, .htmlBlock, .frontmatter:
                     var a = base(theme.monoFont, indent: indent)
                     a[.backgroundColor] = theme.codeBlockBackground
