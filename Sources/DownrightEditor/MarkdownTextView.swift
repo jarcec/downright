@@ -333,6 +333,7 @@ public final class MarkdownTextView: NSTextView {
     public override func insertNewline(_ sender: Any?) {
         guard let controller else { return super.insertNewline(sender) }
         if selectedRange().length == 0, controller.tableInsertRow(at: selectedRange().location) { return }
+        if controller.completeTypedTableHeader(at: selectedRange().location) { return }
         if selectedRange().length == 0, controller.continueList(at: selectedRange().location, in: self) { return }
         super.insertNewline(sender)
     }
@@ -507,11 +508,52 @@ public final class MarkdownTextView: NSTextView {
     @objc public func tableAlignCenter(_ sender: Any?) { table(.align(.center)) }
     @objc public func tableAlignRight(_ sender: Any?) { table(.align(.right)) }
     @objc public func tableAlignDefault(_ sender: Any?) { table(.align(.none)) }
+    @objc public func tableDuplicateRow(_ sender: Any?) { table(.duplicateRow) }
+    @objc public func tableSortAscending(_ sender: Any?) { table(.sort(ascending: true)) }
+    @objc public func tableSortDescending(_ sender: Any?) { table(.sort(ascending: false)) }
+
+    // MARK: - Insert Table
+
+    private var tablePickerPopover: NSPopover?
+
+    /// ⌥⌘T: a size picker at the caret; the table goes in on a pick.
+    @objc public func insertTable(_ sender: Any?) {
+        guard let controller, isEditable else { return }
+        let picker = TableSizePicker(frame: .zero)
+        picker.theme = controller.theme
+        let vc = NSViewController()
+        vc.view = picker
+        let popover = NSPopover()
+        popover.contentViewController = vc
+        popover.behavior = .transient
+        popover.appearance = effectiveAppearance
+        picker.onPick = { [weak self, weak popover] columns, rows in
+            popover?.performClose(nil)
+            guard let self else { return }
+            self.window?.makeFirstResponder(self)
+            self.controller?.insertTable(columns: columns, rows: rows)
+        }
+        picker.onCancel = { [weak popover] in popover?.performClose(nil) }
+        let caret = controller.caretRect(at: selectedRange().location) ?? NSRect(x: visibleRect.midX, y: visibleRect.midY, width: 1, height: 16)
+        popover.show(relativeTo: caret.insetBy(dx: -1, dy: 0), of: self, preferredEdge: .maxY)
+        popover.contentViewController?.view.window?.makeFirstResponder(picker)
+        tablePickerPopover = popover
+    }
+
+    /// Whether Insert Table can run here: editing live, caret outside tables and code.
+    var canInsertTable: Bool {
+        guard let controller, isEditable, controller.mode == .live else { return false }
+        let caret = selectedRange().location
+        if controller.tableHit(at: caret) != nil { return false }
+        if let leaf = controller.document.path(containing: caret).last, leaf.isVerbatim { return false }
+        return true
+    }
 
     static let tableActions: [(String, Selector, EditorController.TableOperation)] = [
         ("Insert Row Above", #selector(tableInsertRowAbove(_:)), .insertRowAbove),
         ("Insert Row Below", #selector(tableInsertRowBelow(_:)), .insertRowBelow),
         ("Delete Row", #selector(tableDeleteRow(_:)), .deleteRow),
+        ("Duplicate Row", #selector(tableDuplicateRow(_:)), .duplicateRow),
         ("Move Row Up", #selector(tableMoveRowUp(_:)), .moveRowUp),
         ("Move Row Down", #selector(tableMoveRowDown(_:)), .moveRowDown),
         ("Insert Column Left", #selector(tableInsertColumnLeft(_:)), .insertColumnLeft),
@@ -519,6 +561,10 @@ public final class MarkdownTextView: NSTextView {
         ("Delete Column", #selector(tableDeleteColumn(_:)), .deleteColumn),
         ("Move Column Left", #selector(tableMoveColumnLeft(_:)), .moveColumnLeft),
         ("Move Column Right", #selector(tableMoveColumnRight(_:)), .moveColumnRight),
+    ]
+    static let sortActions: [(String, Selector, EditorController.TableOperation)] = [
+        ("A to Z", #selector(tableSortAscending(_:)), .sort(ascending: true)),
+        ("Z to A", #selector(tableSortDescending(_:)), .sort(ascending: false)),
     ]
     static let alignActions: [(String, Selector, MarkdownKit.TableAlignment)] = [
         ("Left", #selector(tableAlignLeft(_:)), .left),
@@ -528,8 +574,15 @@ public final class MarkdownTextView: NSTextView {
     ]
 
     /// The Table menu (also used as the context-menu section). Items target the responder chain.
-    public static func makeTableMenu(target: AnyObject? = nil) -> NSMenu {
+    public static func makeTableMenu(target: AnyObject? = nil, includeInsert: Bool = true) -> NSMenu {
         let menu = NSMenu(title: "Table")
+        if includeInsert {
+            let insert = NSMenuItem(title: "Insert Table…", action: #selector(insertTable(_:)), keyEquivalent: "t")
+            insert.keyEquivalentModifierMask = [.command, .option]
+            insert.target = target
+            menu.addItem(insert)
+            menu.addItem(.separator())
+        }
         let up = String(UnicodeScalar(NSUpArrowFunctionKey)!), down = String(UnicodeScalar(NSDownArrowFunctionKey)!)
         let left = String(UnicodeScalar(NSLeftArrowFunctionKey)!), right = String(UnicodeScalar(NSRightArrowFunctionKey)!)
         let backspace = String(UnicodeScalar(NSBackspaceCharacter)!)
@@ -541,23 +594,27 @@ public final class MarkdownTextView: NSTextView {
             .deleteColumn: (backspace, [.command, .option, .shift]),
             .moveColumnLeft: (left, [.command, .option, .control]), .moveColumnRight: (right, [.command, .option, .control]),
         ]
-        for (i, (title, sel, op)) in tableActions.enumerated() {
-            if i == 5 { menu.addItem(.separator()) }
+        for (title, sel, op) in tableActions {
+            if op == .insertColumnLeft { menu.addItem(.separator()) }
             let item = NSMenuItem(title: title, action: sel, keyEquivalent: shortcuts[op]?.0 ?? "")
             if let s = shortcuts[op] { item.keyEquivalentModifierMask = s.1 }
             item.target = target
             menu.addItem(item)
         }
         menu.addItem(.separator())
-        let align = NSMenu(title: "Align Column")
-        for (title, sel, _) in alignActions {
-            let item = NSMenuItem(title: title, action: sel, keyEquivalent: "")
-            item.target = target
-            align.addItem(item)
+        func submenu(_ title: String, _ entries: [(String, Selector)]) {
+            let sub = NSMenu(title: title)
+            for (t, sel) in entries {
+                let item = NSMenuItem(title: t, action: sel, keyEquivalent: "")
+                item.target = target
+                sub.addItem(item)
+            }
+            let holder = NSMenuItem(title: title, action: nil, keyEquivalent: "")
+            holder.submenu = sub
+            menu.addItem(holder)
         }
-        let alignItem = NSMenuItem(title: "Align Column", action: nil, keyEquivalent: "")
-        alignItem.submenu = align
-        menu.addItem(alignItem)
+        submenu("Align Column", alignActions.map { ($0.0, $0.1) })
+        submenu("Sort Rows by Column", sortActions.map { ($0.0, $0.1) })
         return menu
     }
 
@@ -570,13 +627,19 @@ public final class MarkdownTextView: NSTextView {
         let p = convert(event.locationInWindow, from: nil)
         if let controller, let offset = controller.characterIndex(at: p), controller.tableHit(at: offset) != nil {
             contextOffset = offset
-            let tableMenu = Self.makeTableMenu(target: self)
+            let tableMenu = Self.makeTableMenu(target: self, includeInsert: false)
             let holder = NSMenuItem(title: "Table", action: nil, keyEquivalent: "")
             holder.submenu = tableMenu
             menu.insertItem(holder, at: 0)
             menu.insertItem(.separator(), at: 1)
         } else {
             contextOffset = nil
+            if canInsertTable {
+                let item = NSMenuItem(title: "Insert Table…", action: #selector(insertTable(_:)), keyEquivalent: "")
+                item.target = self
+                menu.insertItem(item, at: 0)
+                menu.insertItem(.separator(), at: 1)
+            }
         }
         // Right-click auto-selects the word (or newline) under the pointer; only offer
         // formatting when there is actual text to wrap.
@@ -608,6 +671,7 @@ public final class MarkdownTextView: NSTextView {
     // MARK: - Paste: a URL over a selection becomes a link (PRD §7.4)
 
     public override func paste(_ sender: Any?) {
+        if controller?.pasteTableCells() == true { return }
         let sel = selectedRange()
         if sel.length > 0, let url = Self.pastedURL() {
             let text = (string as NSString).substring(with: sel)
@@ -688,6 +752,11 @@ public final class MarkdownTextView: NSTextView {
         switch item.action {
         case let a? where Self.tableActions.contains(where: { $0.1 == a }):
             guard let controller, let op = Self.tableActions.first(where: { $0.1 == a })?.2 else { return false }
+            return isEditable && controller.canPerformTableOperation(op, at: tableOffset)
+        case #selector(insertTable(_:)):
+            return canInsertTable
+        case let a? where Self.sortActions.contains(where: { $0.1 == a }):
+            guard let controller, let op = Self.sortActions.first(where: { $0.1 == a })?.2 else { return false }
             return isEditable && controller.canPerformTableOperation(op, at: tableOffset)
         case let a? where Self.alignActions.contains(where: { $0.1 == a }):
             guard let controller, let align = Self.alignActions.first(where: { $0.1 == a }) else { return false }

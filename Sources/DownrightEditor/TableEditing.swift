@@ -77,7 +77,7 @@ extension EditorController {
         }
     }
 
-    private func pieces(of row: TableRow) -> RowPieces {
+    func pieces(of row: TableRow) -> RowPieces {
         let ns = textStorage.string as NSString
         return RowPieces(seps: row.separators.map { ns.substring(with: $0) }, cells: row.cells.map { ns.substring(with: $0.range) })
     }
