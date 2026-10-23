@@ -62,10 +62,12 @@ if [ "${1:-}" = "release" ]; then
   DOWNRIGHT_NOTARY_PROFILE="${DOWNRIGHT_NOTARY_PROFILE-downright-notary}"
   rm -rf "$BUILD_DIR"
   LOG=$(mktemp -t downright-release)
+  # Manual style and the team apply to every target, the SwiftPM resource bundles too.
   if [ -n "$SIGN_IDENTITY" ]; then
     step "Building Release, signing with: $SIGN_IDENTITY"
     xcodebuild -project "$APP_DIR/Downright.xcodeproj" -scheme Downright -configuration Release \
-      -derivedDataPath "$BUILD_DIR" "CODE_SIGN_IDENTITY=$SIGN_IDENTITY" "OTHER_CODE_SIGN_FLAGS=--timestamp" \
+      -derivedDataPath "$BUILD_DIR" "CODE_SIGN_IDENTITY=$SIGN_IDENTITY" CODE_SIGN_STYLE=Manual DEVELOPMENT_TEAM=88G5MVRSF4 \
+      "OTHER_CODE_SIGN_FLAGS=--timestamp" \
       CODE_SIGN_INJECT_BASE_ENTITLEMENTS=NO build >"$LOG" 2>&1 \
       || { grep -E "error:" "$LOG" | head -20 >&2; die "build failed (log: $LOG)"; }
   else
