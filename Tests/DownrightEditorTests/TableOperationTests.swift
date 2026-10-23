@@ -58,7 +58,7 @@ final class TableOperationTests: XCTestCase {
         s.replaceCharacters(in: NSRange(location: 0, length: s.length), with: "A | B\n--|--\n1\n")
         c.reparseAll()
         XCTAssertTrue(c.performTableOperation(.insertColumnRight, at: 4))   // at "B"
-        XCTAssertEqual(s.string, "A | B |    \n--|--|---\n1 |     |    \n")
+        XCTAssertEqual(s.string, "A | B |    \n--|--|---\n1 |     |    \n", s.string.debugDescription)
     }
 
     func testMenuValidationOutsideTable() {
