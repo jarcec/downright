@@ -87,6 +87,28 @@ public final class DecorationEngine {
     /// Height kept under a table wider than the column, where its scroll bar sits.
     public nonisolated static let tableScrollBarRoom: CGFloat = 14
 
+    /// Width of the first column while it stays put over a table scrolled sideways (0 when
+    /// the table is not scrolled, or its first column is too wide to pin: more than 40%
+    /// of the column would leave too little room for the rest to scroll through).
+    public func tablePinnedWidth(blockStart: Int) -> CGFloat {
+        guard tableScroll(blockStart: blockStart) > 0.5, let block = tableBlock(at: blockStart), case .table(let t) = block.kind else { return 0 }
+        let b = tableLayout(for: t, blockStart: blockStart).boundaries
+        guard b.count > 2, b[1] <= columnWidth * 0.4 else { return 0 }
+        return b[1]
+    }
+
+    /// `tablePinnedWidth` for the table containing `offset`.
+    public func tablePinnedWidth(containing offset: Int) -> CGFloat {
+        guard !tableScrolls.isEmpty, !sourceMode, let block = document.path(containing: offset).last(where: { if case .table = $0.kind { return true }; return false }) else { return 0 }
+        return tablePinnedWidth(blockStart: block.range.location)
+    }
+
+    /// The table's column boundaries (relative to its left edge), for the chrome.
+    public func tableBoundaries(blockStart: Int) -> [CGFloat]? {
+        guard let block = tableBlock(at: blockStart), case .table(let t) = block.kind else { return nil }
+        return tableLayout(for: t, blockStart: blockStart).boundaries
+    }
+
     private func allTables() -> [Block] {
         var out: [Block] = []
         func walk(_ blocks: [Block]) {
@@ -281,13 +303,17 @@ public final class DecorationEngine {
         guard cellIndex + 1 < b.count else { return false }
         var s = tableScroll(blockStart: blockStart)
         let left = b[cellIndex], right = b[cellIndex + 1] + 1
-        if right - left <= columnWidth {
+        // The pinned first column covers the start of the viewport whenever the table is
+        // scrolled; the caret's own text is only really there when the first column is
+        // not pinned, so a first-column cell scrolls the table home.
+        let pin: CGFloat = cellIndex > 0 && b.count > 2 && b[1] <= columnWidth * 0.4 ? b[1] : 0
+        if right - left <= columnWidth - pin {
             if right > s + columnWidth { s = right - columnWidth }
-            if left < s { s = left }
+            if left < s + pin { s = left - pin }
         } else if let x = caretX {
             let room: CGFloat = 48
             if x + room > s + columnWidth { s = x + room - columnWidth }
-            if x - room < s { s = x - room }
+            if x - room < s + pin { s = x - room - pin }
         }
         return setTableScroll(blockStart: blockStart, to: s)
     }

@@ -23,6 +23,9 @@ final class DecoratedLayoutFragment: NSTextLayoutFragment {
     /// Paragraph spacing after the text (room for a wide table's scroll bar): part of the
     /// frame, but not of the block, so nothing is drawn in it.
     var trailingSpace: CGFloat = 0
+    /// Width of a scrolled table's first column, drawn in place over the scrolled row so
+    /// the row keeps its name (0: not pinned).
+    var pinnedWidth: CGFloat = 0
 
     override var layoutFragmentFrame: CGRect {
         var f = super.layoutFragmentFrame
@@ -160,13 +163,48 @@ final class DecoratedLayoutFragment: NSTextLayoutFragment {
                     context.drawLinearGradient(gradient, start: CGPoint(x: lineRect.maxX - fade, y: 0), end: CGPoint(x: lineRect.maxX, y: 0), options: [])
                     context.restoreGState()
                 }
-                if overflow.left {
+                if overflow.left && pinnedWidth == 0 {
                     context.saveGState()
                     context.clip(to: CGRect(x: lineRect.minX, y: lineRect.minY, width: fade, height: height))
                     context.drawLinearGradient(gradient, start: CGPoint(x: lineRect.minX + fade, y: 0), end: CGPoint(x: lineRect.minX, y: 0), options: [])
                     context.restoreGState()
                 }
             }
+        }
+        context.restoreGState()
+        if pinnedWidth > 0, tableScroll > 0.5 { drawPinnedColumn(at: point, lineRect: lineRect, height: height, in: context) }
+    }
+
+    /// The first column again, at its unscrolled place: page (or header) ground, its
+    /// rules, the row's text shifted back by the scroll and clipped to the column, and a
+    /// soft shadow where the scrolled cells pass under it.
+    private func drawPinnedColumn(at point: CGPoint, lineRect: CGRect, height: CGFloat, in context: CGContext) {
+        guard case .table(_, let header, let top, _) = appearance else { return }
+        let pin = CGRect(x: lineRect.minX, y: lineRect.minY, width: pinnedWidth, height: height)
+        context.saveGState()
+        context.setFillColor(theme.backgroundColor.cgColor)
+        context.fill(pin)
+        if header {
+            context.setFillColor(theme.codeBlockBackground.cgColor)
+            context.fill(pin)
+        }
+        context.setFillColor(theme.rule.cgColor)
+        context.fill(CGRect(x: pin.minX - 0.5, y: pin.minY, width: 1, height: height))
+        context.fill(CGRect(x: pin.maxX - 0.5, y: pin.minY, width: 1, height: height))
+        if top { context.fill(CGRect(x: pin.minX, y: pin.minY, width: pin.width, height: 1)) }
+        let thickness: CGFloat = header ? 1.5 : 1
+        context.fill(CGRect(x: pin.minX, y: pin.maxY - thickness, width: pin.width, height: thickness))
+        context.clip(to: pin.insetBy(dx: 0.5, dy: 0))
+        context.translateBy(x: tableScroll, y: 0)
+        super.draw(at: point, in: context)
+        context.restoreGState()
+
+        context.saveGState()
+        let shadow = CGRect(x: pin.maxX + 0.5, y: pin.minY, width: 6, height: height)
+        context.clip(to: shadow)
+        let colors = [NSColor.black.withAlphaComponent(0.12).cgColor, NSColor.black.withAlphaComponent(0).cgColor] as CFArray
+        if let gradient = CGGradient(colorsSpace: CGColorSpaceCreateDeviceRGB(), colors: colors, locations: [0, 1]) {
+            context.drawLinearGradient(gradient, start: CGPoint(x: shadow.minX, y: 0), end: CGPoint(x: shadow.maxX, y: 0), options: [])
         }
         context.restoreGState()
     }

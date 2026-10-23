@@ -972,6 +972,7 @@ public final class EditorController: NSObject, NSTextViewDelegate, @preconcurren
         fragment.listGuides = d.listGuides
         if case .tableRow = d.role {
             fragment.tableScroll = engine.tableScroll(containing: offset)
+            fragment.pinnedWidth = engine.tablePinnedWidth(containing: offset)
         }
         fragment.trailingSpace = d.spacingAfter
         fragment.appearance = Self.appearance(for: d.role, revealed: revealed, at: offset, length: length)

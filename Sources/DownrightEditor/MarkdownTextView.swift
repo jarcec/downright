@@ -202,6 +202,9 @@ public final class MarkdownTextView: NSTextView {
     }
 
     public override func mouseDown(with event: NSEvent) {
+        if let controller, let start = controller.pinnedTable(at: convert(event.locationInWindow, from: nil)) {
+            controller.scrollTable(blockStart: start, to: 0)   // the pinned cells are a picture; bring the real ones back under the click
+        }
         if let controller, event.clickCount == 1 {
             let mods = event.modifierFlags.intersection([.command, .shift, .option, .control])
             let p = convert(event.locationInWindow, from: nil)

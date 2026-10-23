@@ -583,7 +583,7 @@ final class TableScrollTests: XCTestCase {
         // The Fact cell is wider than the column: scroll a little into it and click there.
         c.scrollTable(blockStart: start, to: 120)
         let fact = s.range(of: "Estuary Technologies").location
-        c.textView.setSelectedRange(NSRange(location: fact + 20, length: 0))
+        c.textView.setSelectedRange(NSRange(location: fact + 32, length: 0))   // clear of the pinned first column
         XCTAssertEqual(c.tableScroll(blockStart: start), 120, accuracy: 0.5, "a visible caret in a wide cell does not move the table")
         // The caret at the far end of the cell drags the table along.
         let end = s.range(of: "March 2026").end
