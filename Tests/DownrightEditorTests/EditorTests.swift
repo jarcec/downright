@@ -619,4 +619,72 @@ final class TableScrollTests: XCTestCase {
         XCTAssertFalse(c.handleTableScroll(deltaX: -30, deltaY: 0, at: NSPoint(x: outside.midX, y: outside.midY), phase: .changed, momentumPhase: []))
         XCTAssertEqual(c.tableScroll(blockStart: start), 70, accuracy: 0.5)
     }
+
+    /// A trackpad gesture opens with events that carry no movement; the decision waits for
+    /// the first one that does, instead of handing the whole gesture to the page.
+    func testAGestureThatOpensStillIsDecidedOnItsFirstMovement() {
+        let (c, s, start) = make()
+        let inTable = c.caretRect(at: s.range(of: "Legal").location)!
+        let p = NSPoint(x: inTable.midX, y: inTable.midY)
+        XCTAssertFalse(c.handleTableScroll(deltaX: 0, deltaY: 0, at: p, phase: .mayBegin, momentumPhase: []))
+        XCTAssertFalse(c.handleTableScroll(deltaX: 0, deltaY: 0, at: p, phase: .began, momentumPhase: []))
+        XCTAssertTrue(c.handleTableScroll(deltaX: -25, deltaY: -1, at: p, phase: .changed, momentumPhase: []))
+        XCTAssertTrue(c.handleTableScroll(deltaX: -15, deltaY: 0, at: p, phase: .changed, momentumPhase: []))
+        XCTAssertEqual(c.tableScroll(blockStart: start), 40, accuracy: 0.5)
+        // A vertical one that opens still stays the page's throughout.
+        XCTAssertFalse(c.handleTableScroll(deltaX: 0, deltaY: 0, at: p, phase: .began, momentumPhase: []))
+        XCTAssertFalse(c.handleTableScroll(deltaX: -1, deltaY: -20, at: p, phase: .changed, momentumPhase: []))
+        XCTAssertFalse(c.handleTableScroll(deltaX: -30, deltaY: 0, at: p, phase: .changed, momentumPhase: []))
+        XCTAssertEqual(c.tableScroll(blockStart: start), 40, accuracy: 0.5)
+    }
+
+    /// A wide table shows a scroll bar under it, in room kept for it, across the column;
+    /// dragging the knob scrolls that table and nothing else.
+    func testAWideTableHasAScrollBarThatScrollsIt() {
+        let (c, s, start) = make()
+        let bars = c.textView.visibleTableScrollBars
+        XCTAssertEqual(bars.count, 1)
+        guard let bar = bars.first else { return }
+        let inset = c.textView.textContainerInset.width
+        XCTAssertEqual(bar.frame.minX, inset, accuracy: 0.5)
+        XCTAssertEqual(bar.frame.width, c.engine.columnWidth, accuracy: 0.5)
+        let lastRow = c.caretRect(at: s.range(of: "Founded").location)!
+        let outro = c.caretRect(at: s.range(of: "Outro").location)!
+        XCTAssertGreaterThanOrEqual(bar.frame.minY, lastRow.maxY, "below the last row")
+        XCTAssertLessThan(bar.frame.maxY, outro.minY, "and clear of the text after the table")
+        XCTAssertLessThan(bar.knobRect.width, bar.frame.width, "the knob shows how much is in view")
+
+        // Drag the knob all the way right: the table reaches its end; the page stays put.
+        let window = c.textView.window!
+        func event(_ type: NSEvent.EventType, x: CGFloat) -> NSEvent {
+            let p = bar.convert(NSPoint(x: x, y: bar.bounds.midY), to: nil)
+            return NSEvent.mouseEvent(with: type, location: p, modifierFlags: [], timestamp: 0, windowNumber: window.windowNumber,
+                                      context: nil, eventNumber: 0, clickCount: 1, pressure: 1)!
+        }
+        let knob = bar.knobRect
+        bar.mouseDown(with: event(.leftMouseDown, x: knob.midX))
+        bar.mouseDragged(with: event(.leftMouseDragged, x: knob.midX + bar.bounds.width))
+        bar.mouseUp(with: event(.leftMouseUp, x: knob.midX + bar.bounds.width))
+        XCTAssertEqual(c.tableScroll(blockStart: start), c.engine.tableScrollLimit(blockStart: start), accuracy: 0.5)
+        XCTAssertEqual(bar.knobRect.maxX, bar.bounds.width, accuracy: 0.5)
+        XCTAssertEqual(c.caretRect(at: 0)!.minX, inset, accuracy: 1, "the rest of the document does not move")
+        // A click on the track's left end jumps back.
+        bar.mouseDown(with: event(.leftMouseDown, x: 1))
+        bar.mouseUp(with: event(.leftMouseUp, x: 1))
+        XCTAssertEqual(c.tableScroll(blockStart: start), 0, accuracy: 0.5)
+    }
+
+    /// A table that fits has no bar and keeps no room for one; widening the window until
+    /// the wide table fits takes its bar away.
+    func testATableThatFitsHasNoScrollBar() {
+        let (c, _, _) = make("| a | b |\n|---|---|\n| 1 | 2 |\n\nAfter.\n", windowWidth: 600)
+        XCTAssertTrue(c.textView.visibleTableScrollBars.isEmpty)
+        let (wide, _, _) = make()
+        XCTAssertEqual(wide.textView.visibleTableScrollBars.count, 1)
+        wide.textView.window!.setContentSize(NSSize(width: 2400, height: 500))
+        wide.scrollView.frame = NSRect(x: 0, y: 0, width: 2400, height: 500)
+        wide.textView.window!.layoutIfNeeded()
+        wide.textView.updateTableScrollBars()
+        XCTAssertTrue(wide.textView.visibleTableScrollBars.isEmpty)
+    }
 }

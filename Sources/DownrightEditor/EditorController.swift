@@ -323,23 +323,65 @@ public final class EditorController: NSObject, NSTextViewDelegate, @preconcurren
         return line.typographicBounds.minX + line.locationForCharacter(at: i).x
     }
 
-    /// The table a sideways gesture is steering, latched for the gesture and its momentum.
-    private var tableScrollTarget: Int? = nil
+    /// A wide table's scroll bar: where it goes (text view coordinates, the full column
+    /// under the table) and how far the table is scrolled.
+    public struct TableScrollBarSpot: Equatable {
+        public var blockStart: Int
+        public var frame: NSRect
+        public var offset: CGFloat
+        public var limit: CGFloat
+    }
+
+    /// Scroll bars for the wide tables whose last row is on screen (or within `margin` of
+    /// it). Reads laid-out fragments only, so it is cheap enough to run on every scroll.
+    public func tableScrollBarSpots(margin: CGFloat = 200) -> [TableScrollBarSpot] {
+        guard mode != .raw else { return [] }
+        let inset = textView.textContainerInset
+        let visible = textView.visibleRect.offsetBy(dx: -inset.width, dy: -inset.height).insetBy(dx: 0, dy: -margin)
+        guard let start = layoutManager.textLayoutFragment(for: CGPoint(x: 0, y: max(0, visible.minY)))?.rangeInElement.location
+                ?? layoutManager.textViewportLayoutController.viewportRange?.location else { return [] }
+        var spots: [TableScrollBarSpot] = []
+        layoutManager.enumerateTextLayoutFragments(from: start, options: [.ensuresLayout]) { f in
+            let frame = f.layoutFragmentFrame
+            if frame.minY > visible.maxY { return false }
+            guard let fragment = f as? DecoratedLayoutFragment, case .table(_, _, _, true) = fragment.appearance,
+                  fragment.trailingSpace > 0, let range = f.textElement?.elementRange else { return true }
+            let offset = contentStorage.offset(from: contentStorage.documentRange.location, to: range.location)
+            guard let block = tableHit(at: offset)?.block else { return true }
+            let start = block.range.location, limit = engine.tableScrollLimit(blockStart: start)
+            guard limit > 0 else { return true }
+            let height: CGFloat = 6
+            let y = inset.height + frame.minY + fragment.contentHeight + (DecorationEngine.tableScrollBarRoom - height) / 2
+            spots.append(TableScrollBarSpot(blockStart: start, frame: NSRect(x: inset.width, y: y, width: engine.columnWidth, height: height),
+                                            offset: engine.tableScroll(blockStart: start), limit: limit))
+            return true
+        }
+        return spots
+    }
+
+    /// Who a scroll gesture belongs to, decided on its first movement and kept through the
+    /// gesture and its momentum. A trackpad gesture often opens with events that carry no
+    /// movement (`mayBegin`, a still `began`), so those leave it undecided.
+    private enum TableGesture { case undecided(NSPoint), table(Int), page }
+    private var tableGesture: TableGesture = .page
 
     /// Routes a scroll event: a mostly horizontal gesture starting over a table that is
     /// wider than the column scrolls that table instead of the page. Returns whether it
     /// was consumed.
     public func handleTableScroll(deltaX: CGFloat, deltaY: CGFloat, at point: NSPoint, phase: NSEvent.Phase, momentumPhase: NSEvent.Phase) -> Bool {
-        let starts = phase == .began || phase == .mayBegin || (phase == [] && momentumPhase == [])
-        if starts {
-            tableScrollTarget = nil
-            guard abs(deltaX) > abs(deltaY), let offset = characterIndex(at: point), let hit = tableHit(at: offset),
-                  engine.tableScrollLimit(blockStart: hit.block.range.location) > 0 else { return false }
-            tableScrollTarget = hit.block.range.location
+        let wheel = phase == [] && momentumPhase == []   // a mouse wheel: every event stands alone
+        if wheel || phase == .began || phase == .mayBegin { tableGesture = .undecided(point) }
+        if case .undecided(let start) = tableGesture, deltaX != 0 || deltaY != 0 {
+            if abs(deltaX) > abs(deltaY), let offset = characterIndex(at: start), let hit = tableHit(at: offset),
+               engine.tableScrollLimit(blockStart: hit.block.range.location) > 0 {
+                tableGesture = .table(hit.block.range.location)
+            } else {
+                tableGesture = .page
+            }
         }
-        guard let target = tableScrollTarget else { return false }
+        guard case .table(let target) = tableGesture else { return false }
         if deltaX != 0 { scrollTable(blockStart: target, to: engine.tableScroll(blockStart: target) - deltaX) }
-        if phase == .cancelled || momentumPhase == .ended || momentumPhase == .cancelled { tableScrollTarget = nil }
+        if phase == .cancelled || momentumPhase == .ended || momentumPhase == .cancelled { tableGesture = .page }
         return true
     }
 
@@ -471,6 +513,8 @@ public final class EditorController: NSObject, NSTextViewDelegate, @preconcurren
         scrollView.documentView = textView
         scrollView.hasVerticalScroller = true
         scrollView.hasHorizontalScroller = false
+        // The page never moves sideways; wide tables scroll within the column instead.
+        scrollView.horizontalScrollElasticity = .none
         scrollView.autohidesScrollers = true
         scrollView.borderType = .noBorder
         scrollView.drawsBackground = true
@@ -675,6 +719,7 @@ public final class EditorController: NSObject, NSTextViewDelegate, @preconcurren
             }
         }
         textView.needsDisplay = true
+        textView.updateTableScrollBars()
         // The indicator was positioned before the relayout; refresh it once layout settled.
         // Without this the caret vanished when moving onto a line adjacent to a heading.
         DispatchQueue.main.async { [weak self] in
@@ -925,7 +970,10 @@ public final class EditorController: NSObject, NSTextViewDelegate, @preconcurren
         fragment.quoteTop = d.quoteTop
         fragment.quoteBottom = d.quoteBottom
         fragment.listGuides = d.listGuides
-        if case .tableRow = d.role { fragment.tableScroll = engine.tableScroll(containing: offset) }
+        if case .tableRow = d.role {
+            fragment.tableScroll = engine.tableScroll(containing: offset)
+        }
+        fragment.trailingSpace = d.spacingAfter
         fragment.appearance = Self.appearance(for: d.role, revealed: revealed, at: offset, length: length)
         return fragment
     }

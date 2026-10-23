@@ -78,6 +78,8 @@ public struct ParagraphDecoration {
     public var firstLineHeadIndent: CGFloat = 0
     public var headIndent: CGFloat = 0
     public var spacingBefore: CGFloat = 0
+    /// Room after the paragraph (under a wide table, for its scroll bar).
+    public var spacingAfter: CGFloat = 0
     public var lineHeightMultiple: CGFloat = 1
     /// Overrides `lineHeightMultiple` while concealed: a line showing an image must not
     /// multiply the image's height into blank space.

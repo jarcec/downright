@@ -20,6 +20,9 @@ final class DecoratedLayoutFragment: NSTextLayoutFragment {
     var theme = Theme()
     /// Table rows: how far their table is scrolled sideways (the layout is shifted by it).
     var tableScroll: CGFloat = 0
+    /// Paragraph spacing after the text (room for a wide table's scroll bar): part of the
+    /// frame, but not of the block, so nothing is drawn in it.
+    var trailingSpace: CGFloat = 0
 
     override var layoutFragmentFrame: CGRect {
         var f = super.layoutFragmentFrame
@@ -61,12 +64,12 @@ final class DecoratedLayoutFragment: NSTextLayoutFragment {
     /// Height of the text lines proper. The document's final paragraph carries an extra
     /// empty line fragment (the caret slot after the trailing newline); block decorations
     /// must not paint it, or the last table row / code line grows a phantom row.
-    private var contentHeight: CGFloat {
+    var contentHeight: CGFloat {
         var h = super.layoutFragmentFrame.height
         if textLineFragments.count > 1, let last = textLineFragments.last, last.characterRange.length == 0 {
             h -= last.typographicBounds.height
         }
-        return h
+        return max(0, h - trailingSpace)
     }
 
     override func draw(at point: CGPoint, in context: CGContext) {

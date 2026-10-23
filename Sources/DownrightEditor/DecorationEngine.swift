@@ -70,10 +70,32 @@ public final class DecorationEngine {
     public func setColumnWidth(_ width: CGFloat) -> [NSRange] {
         guard abs(width - columnWidth) > 0.5 else { return [] }
         let before = tableScrolls.keys.map { ($0, tableScroll(blockStart: $0)) }
+        let tables = allTables()
+        let wide = tables.map { tableScrollLimit(blockStart: $0.range.location) > 0 }
         columnWidth = width
+        // A table that starts or stops overflowing gains or loses the room for its scroll bar.
+        let flipped = zip(tables, wide).compactMap { table, was -> NSRange? in
+            guard (tableScrollLimit(blockStart: table.range.location) > 0) != was else { return nil }
+            for key in cache.keys where table.range.contains(key) { cache[key] = nil }
+            return table.range
+        }
         return before.compactMap { start, old in
             abs(tableScroll(blockStart: start) - old) > 0.5 ? tableBlock(at: start)?.range : nil
-        } + dropImageParagraphs() + dropDiagramParagraphs()
+        } + flipped + dropImageParagraphs() + dropDiagramParagraphs()
+    }
+
+    /// Height kept under a table wider than the column, where its scroll bar sits.
+    public nonisolated static let tableScrollBarRoom: CGFloat = 14
+
+    private func allTables() -> [Block] {
+        var out: [Block] = []
+        func walk(_ blocks: [Block]) {
+            for b in blocks {
+                if case .table = b.kind { out.append(b) } else if b.isContainer { walk(b.children) }
+            }
+        }
+        walk(document.blocks)
+        return out
     }
 
     // MARK: - Images
@@ -733,6 +755,7 @@ public final class DecorationEngine {
         let layout = tableLayout(for: table, blockStart: block.range.location)
         let gutter = Self.cellGutter
         d.role = .tableRow(boundaries: layout.boundaries, header: isHeader, first: isHeader, last: rowIndex == rows.count - 1)
+        if rowIndex == rows.count - 1, tableScrollLimit(blockStart: block.range.location) > 0 { d.spacingAfter = Self.tableScrollBarRoom }
         d.cellRanges = row.cells.map(\.range)
 
         // Cell text: bold header, inline styles, markers concealable per cell.

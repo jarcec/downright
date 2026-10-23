@@ -63,7 +63,41 @@ public final class MarkdownTextView: NSTextView {
         super.layout()
         updateSelectionOverlay()
         updateBlockCursor()
+        updateTableScrollBars()
     }
+
+    // MARK: - Table scroll bars
+
+    /// One per wide table near the visible area; spares are kept hidden for reuse.
+    private var tableScrollBars: [TableScrollBar] = []
+
+    /// Place a scroll bar under each wide table on screen and hide the rest. Runs on
+    /// layout, scrolling, and whenever the controller lays tables out again.
+    public func updateTableScrollBars() {
+        let spots = controller?.tableScrollBarSpots() ?? []
+        while tableScrollBars.count < spots.count {
+            let bar = TableScrollBar(frame: .zero)
+            bar.onScroll = { [weak self] start, offset in self?.controller?.scrollTable(blockStart: start, to: offset) }
+            addSubview(bar)
+            tableScrollBars.append(bar)
+        }
+        for (i, bar) in tableScrollBars.enumerated() {
+            guard i < spots.count else { bar.isHidden = true; continue }
+            let spot = spots[i]
+            if let theme = controller?.theme { bar.theme = theme }
+            bar.frame = spot.frame
+            bar.blockStart = spot.blockStart
+            bar.limit = spot.limit
+            bar.offset = spot.offset
+            bar.isHidden = false
+        }
+        if !spots.isEmpty { updateSelectionOverlay() }
+    }
+
+    /// Visible table scroll bars, for tests.
+    var visibleTableScrollBars: [TableScrollBar] { tableScrollBars.filter { !$0.isHidden } }
+
+    @objc private func clipBoundsDidChange(_ note: Notification) { updateTableScrollBars() }
 
     // MARK: - Selection above the text
 
@@ -79,7 +113,7 @@ public final class MarkdownTextView: NSTextView {
     /// subviews) above both, and keep AppKit's own selection hidden.
     private func updateSelectionOverlay() {
         hideSystemSelection()
-        let top = [selectionOverlay, blockCursor] + overlayViews.filter { $0.superview === self }
+        let top = [selectionOverlay] + tableScrollBars.filter { !$0.isHidden } + [blockCursor] + overlayViews.filter { $0.superview === self }
         if Array(subviews.suffix(top.count)) != top {
             for v in top { addSubview(v, positioned: .above, relativeTo: nil) }
         }
@@ -115,9 +149,14 @@ public final class MarkdownTextView: NSTextView {
         super.viewDidMoveToWindow()
         NotificationCenter.default.removeObserver(self, name: NSWindow.didBecomeKeyNotification, object: nil)
         NotificationCenter.default.removeObserver(self, name: NSWindow.didResignKeyNotification, object: nil)
+        NotificationCenter.default.removeObserver(self, name: NSView.boundsDidChangeNotification, object: nil)
         guard let window else { return }
         for name in [NSWindow.didBecomeKeyNotification, NSWindow.didResignKeyNotification] {
             NotificationCenter.default.addObserver(self, selector: #selector(windowKeyDidChange(_:)), name: name, object: window)
+        }
+        if let clip = enclosingScrollView?.contentView {
+            clip.postsBoundsChangedNotifications = true
+            NotificationCenter.default.addObserver(self, selector: #selector(clipBoundsDidChange(_:)), name: NSView.boundsDidChangeNotification, object: clip)
         }
         updateSelectionOverlay()
     }
@@ -315,7 +354,7 @@ public final class MarkdownTextView: NSTextView {
     public var overlayViews: [NSView] = []
 
     private func pointerIsOverOverlay(_ event: NSEvent) -> Bool {
-        overlayViews.contains { !$0.isHidden && $0.window === window && $0.convert($0.bounds, to: nil).contains(event.locationInWindow) }
+        (overlayViews + tableScrollBars).contains { !$0.isHidden && $0.window === window && $0.convert($0.bounds, to: nil).contains(event.locationInWindow) }
     }
 
     public override func mouseMoved(with event: NSEvent) {
