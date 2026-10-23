@@ -10,6 +10,8 @@ public final class MarkdownTextView: NSTextView {
     public let vim = VimEngine()
 
     public override func keyDown(with event: NSEvent) {
+        if event.keyCode == 53, tableChrome.cancelDrag() { return }
+        if handleTableSelectionKey(event) { return }
         if vim.handle(event) { return }
         super.keyDown(with: event)
     }
@@ -35,10 +37,14 @@ public final class MarkdownTextView: NSTextView {
 
     /// The caret is hidden while vim draws its own block cursor.
     func updateInsertionPointColor() {
-        insertionPointColor = (vim.isEnabled && vim.mode != .insert) ? .clear : (controller?.theme.textColor ?? .textColor)
+        let hidden = (vim.isEnabled && vim.mode != .insert) || controller?.tableSelection != nil
+        insertionPointColor = hidden ? .clear : (controller?.theme.textColor ?? .textColor)
     }
 
-    func modeDidChange() { if controller?.mode != .live { hideTableHandles() } }
+    func modeDidChange() {
+        controller?.clearTableSelection()
+        updateTableScrollBars()
+    }
 
     /// The container does not track the view; size it to the new width minus the insets.
     public override func setFrameSize(_ newSize: NSSize) {
@@ -91,7 +97,107 @@ public final class MarkdownTextView: NSTextView {
             bar.offset = spot.offset
             bar.isHidden = false
         }
+        updateTableChrome()
         if !spots.isEmpty { updateSelectionOverlay() }
+    }
+
+    // MARK: - Table controls (grips, inserts, selection, toolbar)
+
+    lazy var tableChrome: TableChromeView = {
+        let v = TableChromeView(frame: .zero)
+        v.textView = self
+        return v
+    }()
+
+    lazy var tableToolbar: TableToolbar = {
+        let v = TableToolbar(frame: .zero)
+        v.controller = controller
+        return v
+    }()
+
+    /// Show the controls for the caret's table (none outside one, or outside Live), and
+    /// the toolbar over a selected row or column.
+    func updateTableChrome() {
+        guard let controller else { return }
+        if tableChrome.superview !== self { addSubview(tableChrome) }
+        if tableToolbar.superview !== self { addSubview(tableToolbar) }
+        let start = controller.activeTableStart
+        let geometry = start.flatMap { controller.tableGeometry(blockStart: $0) }
+        var caretCell: (row: Int, column: Int)?
+        if let h = controller.tableHit(at: selectedRange().location) { caretCell = (h.rowIndex, h.cellIndex ?? -1) }
+        if controller.tableSelection.map({ $0.blockStart != start }) == true { controller.tableSelection = nil }
+        tableChrome.theme = controller.theme
+        tableChrome.update(geometry: geometry, selection: controller.tableSelection, caretCell: caretCell)
+        tableChrome.isHidden = geometry == nil
+        placeTableToolbar(geometry)
+    }
+
+    private func placeTableToolbar(_ geometry: TableGeometry?) {
+        guard let controller, let g = geometry, let sel = controller.tableSelection, sel.blockStart == g.blockStart,
+              let rect = tableChrome.selectionRect(sel, in: g) else {
+            tableToolbar.isHidden = true
+            return
+        }
+        tableToolbar.controller = controller
+        tableToolbar.theme = controller.theme
+        let aboveStrip = g.top - TableChromeView.stripHeight - 6
+        let size: NSSize
+        var origin: NSPoint
+        switch sel {
+        case .column:
+            tableToolbar.configure(for: .column)
+            size = tableToolbar.fittingSize
+            origin = NSPoint(x: rect.midX - size.width / 2, y: aboveStrip - size.height)
+        case .row(_, let r):
+            tableToolbar.configure(for: .row)
+            size = tableToolbar.fittingSize
+            if g.visibleMaxX + 12 + size.width <= visibleRect.maxX - 6 {
+                // Beside the row, past the table's end, when the page has room there.
+                origin = NSPoint(x: g.visibleMaxX + 12, y: rect.midY - size.height / 2)
+            } else {
+                origin = NSPoint(x: g.visibleMinX, y: (r == 0 ? aboveStrip : rect.minY - 6) - size.height)
+            }
+        }
+        let visible = visibleRect
+        origin.x = max(visible.minX + 6, min(origin.x, visible.maxX - size.width - 6))
+        if origin.y < visible.minY + 4 {
+            // No room above: under the row, or under the table for a column.
+            origin.y = (sel.isColumn ? g.bottom : rect.maxY) + 6
+        }
+        tableToolbar.frame = NSRect(origin: origin, size: size)
+        tableToolbar.isHidden = false
+    }
+
+    /// The controller's selection changed: redraw, and hide the caret while a whole row
+    /// or column is what is selected.
+    func tableSelectionDidChange() {
+        updateInsertionPointColor()
+        updateTableChrome()
+        updateSelectionOverlay()
+    }
+
+    /// Keys while a row or column is selected. Returns whether the key was used.
+    private func handleTableSelectionKey(_ event: NSEvent) -> Bool {
+        guard let controller, controller.tableSelection != nil else { return false }
+        let mods = event.modifierFlags.intersection([.command, .option, .control, .shift])
+        if mods.contains(.command) { return false }   // menu shortcuts: copy, cut, table commands
+        switch event.keyCode {
+        case 53:  // Esc: back to the cell
+            controller.clearTableSelection(); return true
+        case 51, 117:  // ⌫, ⌦
+            guard mods.isEmpty else { break }
+            controller.deleteTableSelection(); return true
+        case 123, 124, 125, 126:  // arrows step the selection along
+            guard mods.isEmpty else { break }
+            let delta = event.keyCode == 123 || event.keyCode == 126 ? -1 : 1
+            if controller.moveTableSelection(by: delta, vertical: event.keyCode >= 125) { return true }
+        case 36, 76:  // Return: edit the first cell
+            controller.clearTableSelection(); return true
+        default:
+            break
+        }
+        controller.clearTableSelection()
+        return false
     }
 
     /// Visible table scroll bars, for tests.
@@ -113,7 +219,7 @@ public final class MarkdownTextView: NSTextView {
     /// subviews) above both, and keep AppKit's own selection hidden.
     private func updateSelectionOverlay() {
         hideSystemSelection()
-        let top = [selectionOverlay] + tableScrollBars.filter { !$0.isHidden } + [blockCursor] + overlayViews.filter { $0.superview === self }
+        let top = [selectionOverlay] + tableScrollBars.filter { !$0.isHidden } + [tableChrome, blockCursor, tableToolbar] + overlayViews.filter { $0.superview === self }
         if Array(subviews.suffix(top.count)) != top {
             for v in top { addSubview(v, positioned: .above, relativeTo: nil) }
         }
@@ -179,8 +285,10 @@ public final class MarkdownTextView: NSTextView {
 
     public override func setSelectedRanges(_ ranges: [NSValue], affinity: NSSelectionAffinity, stillSelecting stillSelectingFlag: Bool) {
         super.setSelectedRanges(ranges, affinity: affinity, stillSelecting: stillSelectingFlag)
+        if let controller, !controller.placingTableSelection, controller.tableSelection != nil { controller.clearTableSelection() }
         updateSelectionOverlay()
         updateBlockCursor()
+        updateTableChrome()
     }
 
     // MARK: - Checkbox clicks
@@ -285,7 +393,28 @@ public final class MarkdownTextView: NSTextView {
     public var copiesRichText: Bool { copiesRichTextByDefault || controller?.mode == .view }
 
     public override func copy(_ sender: Any?) {
+        if copyTableSelection() { return }
         if copiesRichText { copyRichText() } else { super.copy(sender) }
+    }
+
+    public override func cut(_ sender: Any?) {
+        if copyTableSelection() { controller?.deleteTableSelection(); return }
+        super.cut(sender)
+    }
+
+    /// Tab-separated cells: what spreadsheets put on the pasteboard, and what a paste into
+    /// a table reads.
+    nonisolated static let tabSeparatedType = NSPasteboard.PasteboardType("public.utf8-tab-separated-values-text")
+
+    /// A selected row or column goes on the pasteboard as a small Markdown table, with
+    /// tab-separated cells beside it.
+    private func copyTableSelection() -> Bool {
+        guard let text = controller?.tableSelectionText() else { return false }
+        let pb = NSPasteboard.general
+        pb.declareTypes([.string, Self.tabSeparatedType], owner: nil)
+        pb.setString(text.markdown, forType: .string)
+        pb.setString(text.tsv, forType: Self.tabSeparatedType)
+        return true
     }
 
     /// ⌘⇧C: copy in whichever format ⌘C does *not* use.
@@ -317,31 +446,9 @@ public final class MarkdownTextView: NSTextView {
         pb.setString(markdown, forType: NSPasteboard.PasteboardType("net.daringfireball.markdown"))
     }
 
-    // MARK: - Table hover handles (add column / add row)
+    // MARK: - Pointer tracking
 
-    private lazy var addColumnButton: NSButton = makeHandle(action: #selector(handleAddColumn(_:)), tip: "Add column")
-    private lazy var addRowButton: NSButton = makeHandle(action: #selector(handleAddRow(_:)), tip: "Add row")
-    private var handleTableOffset: Int? = nil
-    private var handleZone: NSRect = .zero
     private var trackingArea: NSTrackingArea?
-
-    private func makeHandle(action: Selector, tip: String) -> NSButton {
-        let b = NSButton(frame: NSRect(x: 0, y: 0, width: 18, height: 18))
-        b.image = NSImage(systemSymbolName: "plus.circle.fill", accessibilityDescription: tip)
-        b.symbolConfiguration = .init(pointSize: 15, weight: .regular)
-        b.contentTintColor = controller?.theme.accentColor ?? .controlAccentColor
-        b.isBordered = false
-        b.imagePosition = .imageOnly
-        b.toolTip = tip
-        b.target = self
-        b.action = action
-        b.isHidden = true
-        b.wantsLayer = true
-        b.layer?.backgroundColor = (controller?.theme.backgroundColor ?? .textBackgroundColor).cgColor
-        b.layer?.cornerRadius = 9
-        addSubview(b)
-        return b
-    }
 
     public override func updateTrackingAreas() {
         super.updateTrackingAreas()
@@ -357,14 +464,15 @@ public final class MarkdownTextView: NSTextView {
     public var overlayViews: [NSView] = []
 
     private func pointerIsOverOverlay(_ event: NSEvent) -> Bool {
-        (overlayViews + tableScrollBars).contains { !$0.isHidden && $0.window === window && $0.convert($0.bounds, to: nil).contains(event.locationInWindow) }
+        if !tableChrome.isHidden, tableChrome.part(at: convert(event.locationInWindow, from: nil)) != nil { return true }
+        return (overlayViews + tableScrollBars + [tableToolbar]).contains { !$0.isHidden && $0.window === window && $0.convert($0.bounds, to: nil).contains(event.locationInWindow) }
     }
 
     public override func mouseMoved(with event: NSEvent) {
-        if pointerIsOverOverlay(event) { hideTableHandles(); return }   // NSTextView would re-set the I-beam
-        super.mouseMoved(with: event)
         let p = convert(event.locationInWindow, from: nil)
-        updateTableHandles(at: p)
+        tableChrome.pointerMoved(to: p)
+        if pointerIsOverOverlay(event) { return }   // NSTextView would re-set the I-beam
+        super.mouseMoved(with: event)
         // NSTextView only hands out the pointing hand for links in its text storage;
         // ours are decoration, so set it here.
         if controller?.link(at: p) != nil { NSCursor.pointingHand.set() }
@@ -372,54 +480,7 @@ public final class MarkdownTextView: NSTextView {
 
     public override func mouseExited(with event: NSEvent) {
         super.mouseExited(with: event)
-        updateTableHandles(at: nil)
-    }
-
-    /// Show the add-column / add-row handles for the table under `point` (text view
-    /// coordinates), or hide them. Public for tests.
-    public func updateTableHandles(at point: NSPoint?) {
-        guard let controller, isEditable, controller.mode == .live, let point else { return hideTableHandles() }
-        // Keep them while the pointer is on a handle itself or in the slack around the table.
-        if handleTableOffset != nil, handleZone.contains(point) { return }
-        guard let offset = controller.characterIndex(at: point), let hit = controller.tableHit(at: offset),
-              let boundaries = controller.engine.tableBoundaries(at: offset), let last = boundaries.last,
-              let headerRect = controller.caretRect(at: hit.table.header.range.location),
-              let lastRow = hit.table.allRows.last, let lastRect = controller.caretRect(at: lastRow.range.location) else {
-            return hideTableHandles()
-        }
-        let hasLeadingPipe = (hit.table.header.separators.first?.length ?? 0) > 0
-        let left = headerRect.minX - (hasLeadingPipe ? 0 : DecorationEngine.cellGutter)
-        let tableRect = NSRect(x: left, y: headerRect.minY, width: last, height: lastRect.maxY - headerRect.minY)
-        handleTableOffset = hit.block.range.location
-        handleZone = tableRect.insetBy(dx: -28, dy: -28)
-        addColumnButton.frame.origin = NSPoint(x: tableRect.maxX + 4, y: headerRect.midY - 9)
-        addRowButton.frame.origin = NSPoint(x: tableRect.midX - 9, y: tableRect.maxY + 2)
-        addColumnButton.isHidden = false
-        addRowButton.isHidden = false
-    }
-
-    private func hideTableHandles() {
-        handleTableOffset = nil
-        addColumnButton.isHidden = true
-        addRowButton.isHidden = true
-    }
-
-    public var tableHandlesVisible: Bool { !addColumnButton.isHidden }
-
-    @objc private func handleAddColumn(_ sender: Any?) {
-        guard let controller, let start = handleTableOffset, let hit = controller.tableHit(at: start),
-              let lastCell = hit.table.header.cells.last else { return }
-        controller.performTableOperation(.insertColumnRight, at: lastCell.range.location)
-        window?.makeFirstResponder(self)
-        hideTableHandles()
-    }
-
-    @objc private func handleAddRow(_ sender: Any?) {
-        guard let controller, let start = handleTableOffset, let hit = controller.tableHit(at: start),
-              let lastRow = hit.table.allRows.last else { return }
-        controller.performTableOperation(.insertRowBelow, at: lastRow.range.location + (lastRow.cells.first?.range.location ?? 0) - lastRow.range.location)
-        window?.makeFirstResponder(self)
-        hideTableHandles()
+        tableChrome.pointerMoved(to: nil)
     }
 
     // MARK: - Table operations (menu actions)

@@ -71,6 +71,7 @@ public final class EditorController: NSObject, NSTextViewDelegate, @preconcurren
     private func rebuildEngine() {
         engine = DecorationEngine(document: document, lines: lines, theme: theme, sourceMode: mode == .raw, images: images, baseURL: baseURL, diagrams: diagrams)
         engine.setColumnWidth(textContainer.size.width)
+        engine.tableChromeRoom = mode == .live
         pruneFolds()
         engine.hiddenLines = hiddenLines()
         storageDelegate.engine = engine
@@ -298,6 +299,22 @@ public final class EditorController: NSObject, NSTextViewDelegate, @preconcurren
         textView.needsDisplay = true
     }
 
+    // MARK: - Tables: a whole row or column selected
+
+    /// A row or column picked by its grip: shown tinted, with its toolbar, until the
+    /// caret moves. Rows count from the header (`table.allRows`).
+    public enum TableSelection: Equatable {
+        case row(blockStart: Int, index: Int)
+        case column(blockStart: Int, index: Int)
+        public var blockStart: Int { switch self { case .row(let b, _), .column(let b, _): return b } }
+        public var isColumn: Bool { if case .column = self { return true }; return false }
+    }
+    public internal(set) var tableSelection: TableSelection? {
+        didSet { if tableSelection != oldValue { textView.tableSelectionDidChange() } }
+    }
+    /// Set while the controller moves the caret for a selection, which must not clear it.
+    var placingTableSelection = false
+
     // MARK: - Tables: sideways scrolling
 
     /// Scrolls the table starting at `blockStart` to `offset` (clamped). Returns whether it moved.
@@ -351,7 +368,7 @@ public final class EditorController: NSObject, NSTextViewDelegate, @preconcurren
             let start = block.range.location, limit = engine.tableScrollLimit(blockStart: start)
             guard limit > 0 else { return true }
             let height: CGFloat = 6
-            let y = inset.height + frame.minY + fragment.contentHeight + (DecorationEngine.tableScrollBarRoom - height) / 2
+            let y = inset.height + frame.minY + fragment.leadingSpace + fragment.contentHeight + (DecorationEngine.tableScrollBarRoom - height) / 2
             spots.append(TableScrollBarSpot(blockStart: start, frame: NSRect(x: inset.width, y: y, width: engine.columnWidth, height: height),
                                             offset: engine.tableScroll(blockStart: start), limit: limit))
             return true
@@ -444,6 +461,7 @@ public final class EditorController: NSObject, NSTextViewDelegate, @preconcurren
         self.document = MarkdownParser.parse(text, dialect: .gfm)
         self.lines = LineIndex(text)
         self.engine = DecorationEngine(document: document, lines: lines, theme: theme, images: images, diagrams: diagrams)
+        engine.tableChromeRoom = true   // starts in Live
 
         let container = TableScrollingTextContainer(size: CGSize(width: 0, height: CGFloat.greatestFiniteMagnitude))
         textContainer = container
@@ -973,6 +991,7 @@ public final class EditorController: NSObject, NSTextViewDelegate, @preconcurren
         if case .tableRow = d.role {
             fragment.tableScroll = engine.tableScroll(containing: offset)
             fragment.pinnedWidth = engine.tablePinnedWidth(containing: offset)
+            fragment.leadingSpace = d.spacingBefore
         }
         fragment.trailingSpace = d.spacingAfter
         fragment.appearance = Self.appearance(for: d.role, revealed: revealed, at: offset, length: length)

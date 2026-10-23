@@ -19,6 +19,8 @@ public final class DecorationEngine {
     public let diagrams: DiagramRenderer?
     /// Lines inside folded sections (set by the controller before decorations are built).
     public var hiddenLines: Set<Int> = [] { didSet { cache.removeAll() } }
+    /// Live editing: keep room under every table for its "New row" strip.
+    public var tableChromeRoom = false { didSet { if tableChromeRoom != oldValue { cache.removeAll() } } }
     private var cache: [Int: ParagraphDecoration] = [:]
     private var tableLayouts: [Int: TableLayout] = [:]
     /// Paragraph starts of the built lines that show each image, so a load or a width
@@ -86,6 +88,11 @@ public final class DecorationEngine {
 
     /// Height kept under a table wider than the column, where its scroll bar sits.
     public nonisolated static let tableScrollBarRoom: CGFloat = 14
+    /// Height kept under every table while editing live, for the "New row" strip (below
+    /// the scroll bar when there is one).
+    public nonisolated static let tableNewRowRoom: CGFloat = 26
+    /// Height kept above a table while editing live, for its column grips.
+    public nonisolated static let tableGripRoom: CGFloat = 8
 
     /// Width of the first column while it stays put over a table scrolled sideways (0 when
     /// the table is not scrolled, or its first column is too wide to pin: more than 40%
@@ -781,7 +788,10 @@ public final class DecorationEngine {
         let layout = tableLayout(for: table, blockStart: block.range.location)
         let gutter = Self.cellGutter
         d.role = .tableRow(boundaries: layout.boundaries, header: isHeader, first: isHeader, last: rowIndex == rows.count - 1)
-        if rowIndex == rows.count - 1, tableScrollLimit(blockStart: block.range.location) > 0 { d.spacingAfter = Self.tableScrollBarRoom }
+        if isHeader, tableChromeRoom { d.spacingBefore = max(d.spacingBefore, Self.tableGripRoom) }
+        if rowIndex == rows.count - 1 {
+            d.spacingAfter = (tableScrollLimit(blockStart: block.range.location) > 0 ? Self.tableScrollBarRoom : 0) + (tableChromeRoom ? Self.tableNewRowRoom : 0)
+        }
         d.cellRanges = row.cells.map(\.range)
 
         // Cell text: bold header, inline styles, markers concealable per cell.

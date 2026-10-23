@@ -1,8 +1,8 @@
 import AppKit
 import MarkdownKit
 
-/// Where a table sits on screen: its rows, its columns as scrolled, and its pinned first
-/// column. Text view coordinates throughout.
+/// Where a table sits on screen, for the controls drawn around it: grips, inserts, the
+/// selection, the toolbar. Text view coordinates throughout.
 public struct TableGeometry: Equatable {
     public var blockStart: Int
     /// The table's left edge as if unscrolled.
@@ -55,9 +55,20 @@ public struct TableGeometry: Equatable {
         return (rowEdges[r], rowEdges[r + 1])
     }
 
+    /// The "New row" strip, under the table (and under its scroll bar).
+    public var newRowRect: NSRect {
+        NSRect(x: visibleMinX, y: bottom + (wide ? DecorationEngine.tableScrollBarRoom : 0) + 3,
+               width: visibleMaxX - visibleMinX, height: DecorationEngine.tableNewRowRoom - 6)
+    }
 }
 
 extension EditorController {
+    /// The table the controls are shown for: the caret's, while editing live.
+    public var activeTableStart: Int? {
+        guard mode == .live, textView.isEditable else { return nil }
+        return tableHit(at: textView.selectedRange().location)?.block.range.location
+    }
+
     /// The table's on-screen geometry, or nil when it is not laid out as a table.
     public func tableGeometry(blockStart: Int) -> TableGeometry? {
         guard mode != .raw, let t = table(at: blockStart), let boundaries = engine.tableBoundaries(blockStart: blockStart) else { return nil }
@@ -71,7 +82,7 @@ extension EditorController {
             guard let f = layoutManager.textLayoutFragment(for: loc) else { return nil }
             let frame = f.layoutFragmentFrame
             let decorated = f as? DecoratedLayoutFragment
-            let top = inset.height + frame.minY
+            let top = inset.height + frame.minY + (decorated?.leadingSpace ?? 0)
             edges.append(top)
             bottom = top + (decorated?.contentHeight ?? frame.height)
             if frameMinX == nil { frameMinX = frame.minX }
@@ -97,5 +108,113 @@ extension EditorController {
         let pin = engine.tablePinnedWidth(blockStart: start)
         guard pin > 0, let g = tableGeometry(blockStart: start), point.x >= g.left, point.x <= g.left + pin else { return nil }
         return start
+    }
+
+    // MARK: Selecting a row or column
+
+    public func selectTableRow(blockStart: Int, index: Int) {
+        guard let t = table(at: blockStart), index >= 0, index < t.allRows.count else { return }
+        placeCaretForSelection(t.allRows[index].cells.first?.range.location ?? t.allRows[index].range.location)
+        tableSelection = .row(blockStart: blockStart, index: index)
+    }
+
+    public func selectTableColumn(blockStart: Int, index: Int) {
+        guard let t = table(at: blockStart), index >= 0, index < t.columnCount else { return }
+        placeCaretForSelection(t.header.cells[index].range.location)
+        tableSelection = .column(blockStart: blockStart, index: index)
+    }
+
+    public func clearTableSelection() { tableSelection = nil }
+
+    private func placeCaretForSelection(_ location: Int) {
+        placingTableSelection = true
+        textView.setSelectedRange(NSRange(location: location, length: 0))
+        placingTableSelection = false
+    }
+
+    /// Runs a toolbar or keyboard command on the selected row or column. Moves, sorts,
+    /// alignments and copies keep the (moved) row or column selected; an insert puts the
+    /// caret in the new cell to type; a delete leaves the caret in a neighbour.
+    @discardableResult
+    public func performOnTableSelection(_ op: TableOperation) -> Bool {
+        guard let sel = tableSelection else { return false }
+        let target: TableTarget
+        switch sel {
+        case .row(let b, let i): target = TableTarget(blockStart: b, row: i, column: 0)
+        case .column(let b, let i): target = TableTarget(blockStart: b, row: 0, column: i)
+        }
+        guard let result = performTableOperation(op, on: target) else { return false }
+        switch op {
+        case .insertRowAbove, .insertRowBelow, .insertColumnLeft, .insertColumnRight, .deleteRow, .deleteColumn:
+            tableSelection = nil
+        default:
+            if case .row = sel { selectTableRow(blockStart: result.blockStart, index: result.row) }
+            else { selectTableColumn(blockStart: result.blockStart, index: result.column) }
+        }
+        return true
+    }
+
+    public func canPerformOnTableSelection(_ op: TableOperation) -> Bool {
+        switch tableSelection {
+        case .row(let b, let i)?: return canPerformTableOperation(op, on: TableTarget(blockStart: b, row: i, column: 0))
+        case .column(let b, let i)?: return canPerformTableOperation(op, on: TableTarget(blockStart: b, row: 0, column: i))
+        case nil: return false
+        }
+    }
+
+    /// Delete the selected row or column (⌫).
+    public func deleteTableSelection() {
+        switch tableSelection {
+        case .row?: performOnTableSelection(.deleteRow)
+        case .column?: performOnTableSelection(.deleteColumn)
+        case nil: break
+        }
+    }
+
+    /// Step the selection to the neighbouring row or column (arrow keys).
+    public func moveTableSelection(by delta: Int, vertical: Bool) -> Bool {
+        switch tableSelection {
+        case .row(let b, let i)? where vertical:
+            guard let t = table(at: b), i + delta >= 0, i + delta < t.allRows.count else { return true }
+            selectTableRow(blockStart: b, index: i + delta)
+            return true
+        case .column(let b, let i)? where !vertical:
+            guard let t = table(at: b), i + delta >= 0, i + delta < t.columnCount else { return true }
+            selectTableColumn(blockStart: b, index: i + delta)
+            return true
+        default:
+            return false
+        }
+    }
+
+    /// The selected row or column as text: a Markdown table of just that row (under the
+    /// header) or column, so it pastes as a table, and tab-separated cells for
+    /// spreadsheets and for pasting into another table.
+    public func tableSelectionText() -> (markdown: String, tsv: String)? {
+        guard let sel = tableSelection, let t = table(at: sel.blockStart) else { return nil }
+        let ns = textStorage.string as NSString
+        func text(_ cell: TableCell?) -> String { cell.map { ns.substring(with: $0.range) } ?? "" }
+        func line(_ cells: [String]) -> String { "| " + cells.joined(separator: " | ") + " |" }
+        func delimiter(_ columns: [Int]) -> String {
+            "|" + columns.map { c -> String in
+                switch c < t.alignments.count ? t.alignments[c] : .none {
+                case .left: return ":---"
+                case .center: return ":---:"
+                case .right: return "---:"
+                case .none: return "---"
+                }
+            }.joined(separator: "|") + "|"
+        }
+        switch sel {
+        case .row(_, let i):
+            let cells = t.allRows[i].cells.map { text($0) }
+            if i == 0 { return (line(cells) + "\n" + delimiter(Array(0..<t.columnCount)) + "\n", cells.joined(separator: "\t") + "\n") }
+            let header = t.header.cells.map { text($0) }
+            return ([line(header), delimiter(Array(0..<t.columnCount)), line(cells)].joined(separator: "\n") + "\n", cells.joined(separator: "\t") + "\n")
+        case .column(_, let c):
+            let cells = t.allRows.map { text(c < $0.cells.count ? $0.cells[c] : nil) }
+            let md = ([line([cells[0]]), delimiter([c])] + cells.dropFirst().map { line([$0]) }).joined(separator: "\n") + "\n"
+            return (md, cells.joined(separator: "\n") + "\n")
+        }
     }
 }

@@ -26,6 +26,9 @@ final class DecoratedLayoutFragment: NSTextLayoutFragment {
     /// Width of a scrolled table's first column, drawn in place over the scrolled row so
     /// the row keeps its name (0: not pinned).
     var pinnedWidth: CGFloat = 0
+    /// Paragraph spacing before a table's header (room for its column grips): part of
+    /// the frame, but not of the table.
+    var leadingSpace: CGFloat = 0
 
     override var layoutFragmentFrame: CGRect {
         var f = super.layoutFragmentFrame
@@ -72,14 +75,14 @@ final class DecoratedLayoutFragment: NSTextLayoutFragment {
         if textLineFragments.count > 1, let last = textLineFragments.last, last.characterRange.length == 0 {
             h -= last.typographicBounds.height
         }
-        return max(0, h - trailingSpace)
+        return max(0, h - trailingSpace - leadingSpace)
     }
 
     override func draw(at point: CGPoint, in context: CGContext) {
         if appearance == .hidden { return }
         let width = columnWidth
         let height = contentHeight
-        let lineRect = CGRect(x: point.x - indentOffset, y: point.y, width: width, height: height)
+        let lineRect = CGRect(x: point.x - indentOffset, y: point.y + leadingSpace, width: width, height: height)
 
         context.saveGState()
         // A table wider than the column is cut at the column's edges and scrolls within them.

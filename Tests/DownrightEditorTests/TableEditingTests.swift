@@ -122,7 +122,7 @@ final class TableRowHeightTests: XCTestCase {
         var secondCellX: [Int: CGFloat] = [:]
         c.layoutManager.enumerateTextLayoutFragments(from: c.layoutManager.documentRange.location, options: [.ensuresLayout]) { f in
             let loc = c.contentStorage.offset(from: c.contentStorage.documentRange.location, to: f.textElement!.elementRange!.location)
-            heights[loc] = f.layoutFragmentFrame.height
+            heights[loc] = (f as? DecoratedLayoutFragment)?.contentHeight ?? f.layoutFragmentFrame.height   // the row, not the room kept under the table
             return true
         }
         let rowOffsets = [0, 20, 30, 44]   // header, "1", empty, "x"
