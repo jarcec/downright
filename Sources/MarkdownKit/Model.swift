@@ -160,6 +160,9 @@ public struct Inline: Sendable {
         case html
         /// `[^label]` (GFM footnotes). Markers: `[^` and `]`; the label stays as text.
         case footnoteReference(label: String)
+        /// TeX between `$…$` (inline), `$$…$$` (display) or `` $`…`$ `` (GitHub math).
+        /// Markers: the opening and closing delimiters; the TeX between them is not parsed.
+        case math(display: Bool)
     }
 
     public var kind: Kind
@@ -184,16 +187,20 @@ public struct Dialect: Sendable, Equatable {
     public var bareAutolinks: Bool
     public var frontmatter: Bool
     public var footnotes: Bool
+    /// GitHub's math: `$…$` and `$$…$$` inline, and `$$` lines fencing a display block
+    /// (parsed as a fenced block with the info string `math`, like ```` ```math ````).
+    public var math: Bool
 
-    public init(tables: Bool, taskLists: Bool, strikethrough: Bool, bareAutolinks: Bool, frontmatter: Bool, footnotes: Bool = true) {
+    public init(tables: Bool, taskLists: Bool, strikethrough: Bool, bareAutolinks: Bool, frontmatter: Bool, footnotes: Bool = true, math: Bool = true) {
         self.tables = tables
         self.taskLists = taskLists
         self.strikethrough = strikethrough
         self.bareAutolinks = bareAutolinks
         self.frontmatter = frontmatter
         self.footnotes = footnotes
+        self.math = math
     }
 
-    public static let commonMark = Dialect(tables: false, taskLists: false, strikethrough: false, bareAutolinks: false, frontmatter: false, footnotes: false)
-    public static let gfm = Dialect(tables: true, taskLists: true, strikethrough: true, bareAutolinks: true, frontmatter: true, footnotes: true)
+    public static let commonMark = Dialect(tables: false, taskLists: false, strikethrough: false, bareAutolinks: false, frontmatter: false, footnotes: false, math: false)
+    public static let gfm = Dialect(tables: true, taskLists: true, strikethrough: true, bareAutolinks: true, frontmatter: true, footnotes: true, math: true)
 }

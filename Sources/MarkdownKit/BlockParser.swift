@@ -269,7 +269,7 @@ final class BlockParser {
                 close(node)
                 return
             }
-            if (c == C.backtick || c == C.tilde), let f = fenceOpen(from: after, to: lineEnd, indent: indent) {
+            if (c == C.backtick || c == C.tilde || (c == C.dollar && dialect.math)), let f = fenceOpen(from: after, to: lineEnd, indent: indent) {
                 closeOpenChild(container)
                 let fenceLine = NSRange(pos, to: lineEnd)
                 let node = Node(kind: .fencedCode(openFence: fenceLine, closeFence: nil, info: f.info), start: lineStart)
@@ -630,7 +630,7 @@ final class BlockParser {
         let c = buf[after]
         if c == C.gt { return true }
         if c == C.hash && atxHeading(from: after, to: end) != nil { return true }
-        if (c == C.backtick || c == C.tilde) && fenceOpen(from: after, to: end, indent: indent) != nil { return true }
+        if (c == C.backtick || c == C.tilde || (c == C.dollar && dialect.math)) && fenceOpen(from: after, to: end, indent: indent) != nil { return true }
         if isThematicBreak(from: after, to: end) { return true }
         if listItemStart(from: after, to: end, indent: indent) != nil { return true }
         return false
@@ -670,8 +670,10 @@ final class BlockParser {
         var q = p
         while q < end && buf[q] == ch { q += 1 }
         let len = q - p
-        guard len >= 3 else { return nil }
         let rest = NSRange(q, to: end)
+        // GitHub's display math: a line of just `$$` opens it, another closes it.
+        if ch == C.dollar { return len == 2 && isBlank(from: q, to: end) ? Fence(char: ch, length: 2, info: "math") : nil }
+        guard len >= 3 else { return nil }
         if ch == C.backtick {
             for i in rest.location..<rest.end where buf[i] == C.backtick { return nil }
         }

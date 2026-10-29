@@ -17,6 +17,8 @@ public final class DecorationEngine {
     public let baseURL: URL?
     /// Draws ```mermaid blocks; nil leaves them as code.
     public let diagrams: DiagramRenderer?
+    /// Typesets `$…$`, `$$…$$` and ```math; nil leaves them as source.
+    public let math: MathRenderer?
     /// Lines inside folded sections (set by the controller before decorations are built).
     public var hiddenLines: Set<Int> = [] { didSet { cache.removeAll() } }
     /// Live editing: keep room under every table for its "New row" strip.
@@ -162,10 +164,12 @@ public final class DecorationEngine {
         }
     }
 
-    /// The source of a ```mermaid block, or nil when it is not one this engine draws
-    /// (no renderer, Raw mode, or nothing between the fences yet).
+    /// The source of a ```mermaid or ```math (or `$$`) block, or nil when it is not one this
+    /// engine draws (no renderer, Raw mode, or nothing between the fences yet).
     private func diagramSource(_ block: Block, info: String) -> String? {
-        guard diagrams != nil, !sourceMode, DiagramRenderer.isDiagram(info: info) else { return nil }
+        guard !sourceMode else { return nil }
+        let drawn = MathRenderer.isMath(info: info) ? math != nil : diagrams != nil && DiagramRenderer.isDiagram(info: info)
+        guard drawn else { return nil }
         let src = document.sourceString as NSString
         let text = block.contentRanges.map { src.substring(with: $0) }.joined(separator: "\n")
         return text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : text
@@ -174,18 +178,30 @@ public final class DecorationEngine {
     /// While concealed, the opening fence of a diagram shows the diagram: its first
     /// character becomes the attachment, the rest of the line is hidden, and the source
     /// lines below collapse. Revealed, the block is ordinary code.
-    private func diagramFence(_ source: String, line cr: NSRange, fence: NSRange, into d: inout ParagraphDecoration) {
-        guard let diagrams else { return }
-        let (key, state) = diagrams.diagram(for: source, theme: theme)
-        diagramSites[key, default: []].insert(cr.location)
+    private func diagramFence(_ source: String, info: String, line cr: NSRange, fence: NSRange, into d: inout ParagraphDecoration) {
         let image: NSImage
         var tip: String? = nil
-        switch state {
-        case .rendered(let img): image = img
-        case .rendering: image = placeholder(symbol: "flowchart", text: "Drawing diagram…")
-        case .failed(let message):
-            image = placeholder(symbol: "exclamationmark.triangle", text: "Diagram error")
-            tip = message
+        if MathRenderer.isMath(info: info) {
+            guard let math else { return }
+            diagramSites[Self.mathSites, default: []].insert(cr.location)
+            switch math.formula(source, display: true, color: resolved(theme.textColor), fontSize: theme.bodySize) {
+            case .rendered(let f): image = f.image
+            case .failed(let message):
+                image = placeholder(symbol: "exclamationmark.triangle", text: "Formula error")
+                tip = message
+            }
+            d.concealedAlignment = .center
+        } else {
+            guard let diagrams else { return }
+            let (key, state) = diagrams.diagram(for: source, theme: theme)
+            diagramSites[key, default: []].insert(cr.location)
+            switch state {
+            case .rendered(let img): image = img
+            case .rendering: image = placeholder(symbol: "flowchart", text: "Drawing diagram…")
+            case .failed(let message):
+                image = placeholder(symbol: "exclamationmark.triangle", text: "Diagram error")
+                tip = message
+            }
         }
         let at = fence.location
         attach(image, at: at, maxWidth: columnWidth - d.headIndent, into: &d)
@@ -232,6 +248,52 @@ public final class DecorationEngine {
 
         attach(image, at: r.location, maxWidth: columnWidth - d.headIndent, into: &d)
         if let rest = NSRange(location: r.location + 1, length: r.length - 1).intersection(cr), rest.length > 0 { d.conceal.append(rest) }
+    }
+
+    /// Where formulas are drawn, under one key: they are typeset in the appearance's text
+    /// colour, so a flip between light and dark redraws them with the diagrams.
+    private static let mathSites = "math"
+
+    /// `color` as it resolves in the editor's appearance (formulas are drawn in a fixed colour).
+    private func resolved(_ color: NSColor) -> NSColor {
+        var out = color
+        (diagrams?.appearance ?? NSAppearance(named: .aqua)!).performAsCurrentDrawingAppearance {
+            out = color.usingColorSpace(.sRGB) ?? color
+        }
+        return out
+    }
+
+    /// Typeset `$…$` while concealed: the opening `$` carries the formula, sitting on the
+    /// baseline as TeX places it, and the rest of the construct hides. TeX that will not
+    /// typeset stays source, tinted, with TeX's complaint as its tooltip.
+    private func mathInline(_ n: Inline, display: Bool, cr: NSRange, fontSize: CGFloat, color: NSColor, into d: inout ParagraphDecoration) {
+        let r = n.range
+        for m in n.markerRanges where NSIntersectionRange(m, cr).length > 0 {
+            d.markerStyles.append(StyleRun(m, .foreground(theme.markerColor)))
+        }
+        guard let math, !sourceMode, n.markerRanges.count == 2 else { return }
+        let src = document.sourceString as NSString
+        let tex = src.substring(with: NSRange(n.markerRanges[0].end, to: n.markerRanges[1].location))
+        switch math.formula(tex, display: display, color: resolved(color), fontSize: fontSize) {
+        case .rendered(let f):
+            diagramSites[Self.mathSites, default: []].insert(lines.lineStarts[lines.line(containing: r.location)])
+            var hidden = r
+            if cr.contains(r.location) {
+                let attachment = NSTextAttachment()
+                attachment.image = f.image
+                attachment.bounds = CGRect(x: 0, y: -f.descent, width: f.image.size.width, height: f.image.size.height)
+                attachment.allowsTextAttachmentView = false
+                let first = NSRange(location: r.location, length: 1)
+                d.substitutions.append((r.location, 0xFFFC))
+                d.concealedStyles.append(StyleRun(first, .font(.systemFont(ofSize: fontSize))))
+                d.concealedStyles.append(StyleRun(first, .attachment(attachment)))
+                hidden = NSRange(r.location + 1, to: r.end)
+            }
+            if let rest = hidden.intersection(cr), rest.length > 0 { d.conceal.append(rest) }
+        case .failed(let message):
+            d.styles.append(StyleRun(r, .foreground(theme.color(for: .removed))))
+            d.styles.append(StyleRun(r, .toolTip(message)))
+        }
     }
 
     /// A pill standing in for an image that is loading, blocked or missing.
@@ -329,12 +391,14 @@ public final class DecorationEngine {
         document.path(containing: start).last(where: { if case .table = $0.kind { return true }; return false })
     }
 
-    public init(document: Document, lines: LineIndex, theme: Theme, sourceMode: Bool = false, images: ImageLoader? = nil, baseURL: URL? = nil, diagrams: DiagramRenderer? = nil) {
+    public init(document: Document, lines: LineIndex, theme: Theme, sourceMode: Bool = false, images: ImageLoader? = nil, baseURL: URL? = nil,
+                diagrams: DiagramRenderer? = nil, math: MathRenderer? = nil) {
         self.document = document
         self.lines = lines
         self.theme = theme
         self.sourceMode = sourceMode
         self.diagrams = diagrams
+        self.math = math
         self.images = images
         self.baseURL = baseURL
         self.spaceWidth = theme.spaceWidth
@@ -586,7 +650,7 @@ public final class DecorationEngine {
                 d.conceal.append(m)
                 d.markerStyles.append(StyleRun(m, .foreground(theme.markerColor)))
             }
-            inlineStyles(leaf, cr: cr, into: &d)
+            inlineStyles(leaf, cr: cr, fontSize: theme.headingFont(level).pointSize, color: theme.headingColor, into: &d)
 
         case .setextHeading(let level, let underline):
             if cr.contains(underline.location) {
@@ -597,7 +661,7 @@ public final class DecorationEngine {
                 d.styles.append(StyleRun(pr, .font(theme.headingFont(level))))
                 d.styles.append(StyleRun(pr, .foreground(theme.headingColor)))
                 if li == firstLine { d.spacingBefore = theme.bodySize * 0.6 }
-                inlineStyles(leaf, cr: cr, into: &d)
+                inlineStyles(leaf, cr: cr, fontSize: theme.headingFont(level).pointSize, color: theme.headingColor, into: &d)
             }
 
         case .thematicBreak:
@@ -613,7 +677,7 @@ public final class DecorationEngine {
                 if isOpen {
                     d.role = .diagramFence(info: info)
                     d.markerStyles.append(StyleRun(openFence, .foreground(theme.markerColor)))
-                    diagramFence(source, line: cr, fence: openFence, into: &d)
+                    diagramFence(source, info: info, line: cr, fence: openFence, into: &d)
                 } else {
                     let closing = closeFence.map { cr.contains($0.location) || ($0.length == 0 && cr.location == $0.location) } ?? false
                     d.role = .diagramSource(closing: closing)
@@ -675,18 +739,19 @@ public final class DecorationEngine {
                 d.markerStyles.append(StyleRun(m, .foreground(theme.markerColor)))
                 superscript(labelRange, into: &d)
             }
-            inlineStyles(leaf, cr: cr, into: &d)
+            inlineStyles(leaf, cr: cr, fontSize: theme.bodySize * 0.85, color: theme.secondaryColor, into: &d)
 
         case .blockQuote, .list, .listItem:
             break
         }
     }
 
-    private func inlineStyles(_ block: Block, cr: NSRange, into d: inout ParagraphDecoration) {
-        inlineStyles(block.inlines, cr: cr, into: &d)
+    private func inlineStyles(_ block: Block, cr: NSRange, fontSize: CGFloat? = nil, color: NSColor? = nil, into d: inout ParagraphDecoration) {
+        inlineStyles(block.inlines, cr: cr, fontSize: fontSize, color: color, into: &d)
     }
 
-    private func inlineStyles(_ inlines: [Inline], cr: NSRange, into d: inout ParagraphDecoration) {
+    /// `fontSize` and `color` are the text's around inline formulas (a heading's, say).
+    private func inlineStyles(_ inlines: [Inline], cr: NSRange, fontSize: CGFloat? = nil, color: NSColor? = nil, into d: inout ParagraphDecoration) {
         func walk(_ nodes: [Inline]) {
             for n in nodes {
                 guard NSIntersectionRange(n.range, cr).length > 0 else { continue }
@@ -718,6 +783,9 @@ public final class DecorationEngine {
                     d.styles.append(StyleRun(r, .foreground(theme.secondaryColor)))
                 case .footnoteReference:
                     superscript(NSRange(location: r.location + 2, length: max(0, r.length - 3)), into: &d)
+                case .math(let display):
+                    mathInline(n, display: display, cr: cr, fontSize: fontSize ?? theme.bodySize, color: color ?? theme.textColor, into: &d)
+                    continue   // its markers are its own business
                 case .text, .softBreak, .hardBreak, .escape:
                     break
                 }

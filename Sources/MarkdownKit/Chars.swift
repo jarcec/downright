@@ -10,6 +10,7 @@ public enum C {
     static let bang: UInt16 = 33        // !
     static let dquote: UInt16 = 34      // "
     static let hash: UInt16 = 35        // #
+    static let dollar: UInt16 = 36      // $
     static let squote: UInt16 = 39      // '
     static let lparen: UInt16 = 40      // (
     static let rparen: UInt16 = 41      // )

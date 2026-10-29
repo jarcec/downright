@@ -133,6 +133,7 @@ extension Inline.Kind {
         case .autolink(let d): return "autolink(\(d))"
         case .html: return "html"
         case .footnoteReference(let l): return "fnref(\(l))"
+        case .math(let display): return display ? "math(display)" : "math"
         }
     }
 }
@@ -148,8 +149,10 @@ public struct DetectedDialect: Equatable, Sendable {
     public var frontmatter = false
     public var bareAutolinks = false
     public var footnotes = false
+    public var math = false
+    public var alerts = false
 
-    public var usesExtensions: Bool { tables || taskLists || strikethrough || frontmatter || bareAutolinks || footnotes }
+    public var usesExtensions: Bool { tables || taskLists || strikethrough || frontmatter || bareAutolinks || footnotes || math || alerts }
 
     /// "CommonMark", or "GFM" followed by the extensions in use.
     public var summary: String {
@@ -161,6 +164,8 @@ public struct DetectedDialect: Equatable, Sendable {
         if strikethrough { parts.append("strikethrough") }
         if bareAutolinks { parts.append("autolinks") }
         if footnotes { parts.append("footnotes") }
+        if math { parts.append("math") }
+        if alerts { parts.append("alerts") }
         return "GFM · " + parts.joined(separator: ", ")
     }
 
@@ -172,6 +177,7 @@ public struct DetectedDialect: Equatable, Sendable {
                 case .strikethrough: d.strikethrough = true
                 case .autolink: if n.markerRanges.isEmpty { d.bareAutolinks = true }
                 case .footnoteReference: d.footnotes = true
+                case .math: d.math = true
                 default: break
                 }
                 inlines(n.children)
@@ -184,6 +190,8 @@ public struct DetectedDialect: Equatable, Sendable {
                 case .frontmatter: d.frontmatter = true
                 case .listItem(_, _, let task): if task != nil { d.taskLists = true }
                 case .footnoteDefinition: d.footnotes = true
+                case .fencedCode(_, _, let info): if info.lowercased() == "math" { d.math = true }
+                case .blockQuote: if b.alert(in: document.sourceString as NSString) != nil { d.alerts = true }
                 default: break
                 }
                 inlines(b.inlines)

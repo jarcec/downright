@@ -69,7 +69,7 @@ public final class EditorController: NSObject, NSTextViewDelegate, @preconcurren
     }
 
     private func rebuildEngine() {
-        engine = DecorationEngine(document: document, lines: lines, theme: theme, sourceMode: mode == .raw, images: images, baseURL: baseURL, diagrams: diagrams)
+        engine = DecorationEngine(document: document, lines: lines, theme: theme, sourceMode: mode == .raw, images: images, baseURL: baseURL, diagrams: diagrams, math: .shared)
         engine.setColumnWidth(textContainer.size.width)
         engine.tableChromeRoom = mode == .live
         pruneFolds()
@@ -460,7 +460,7 @@ public final class EditorController: NSObject, NSTextViewDelegate, @preconcurren
         let text = textStorage.string
         self.document = MarkdownParser.parse(text, dialect: .gfm)
         self.lines = LineIndex(text)
-        self.engine = DecorationEngine(document: document, lines: lines, theme: theme, images: images, diagrams: diagrams)
+        self.engine = DecorationEngine(document: document, lines: lines, theme: theme, images: images, diagrams: diagrams, math: .shared)
         engine.tableChromeRoom = true   // starts in Live
 
         let container = TableScrollingTextContainer(size: CGSize(width: 0, height: CGFloat.greatestFiniteMagnitude))

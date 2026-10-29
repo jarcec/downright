@@ -24,7 +24,7 @@ extension Document {
             func walk(_ nodes: [Inline]) {
                 for n in nodes {
                     switch n.kind {
-                    case .html, .image, .footnoteReference: cut.append(n.range); continue
+                    case .html, .image, .footnoteReference, .math: cut.append(n.range); continue
                     default: break
                     }
                     cut.append(contentsOf: n.markerRanges)

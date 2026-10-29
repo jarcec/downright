@@ -107,6 +107,15 @@ struct InlineParser {
                     pos = q
                 }
 
+            case C.dollar where dialect.math:
+                if let node = math(at: pos) {
+                    flushText(to: pos)
+                    nodes.append(node)
+                    pos = node.end; textStart = pos
+                } else {
+                    pos += 1
+                }
+
             case C.lt:
                 if let (dest, end) = autolink(at: pos) {
                     flushText(to: pos)
@@ -306,6 +315,49 @@ struct InlineParser {
             } else {
                 p += 1
             }
+        }
+        return nil
+    }
+
+    // MARK: - Math
+
+    /// GitHub's inline math. `$…$`: the TeX may not start or end with a space, and the
+    /// closing `$` may not run into a digit, so prices (`$5 and $10`) stay text.
+    /// `$$…$$` is display math, spaces allowed. `` $`…`$ `` quotes TeX that would otherwise
+    /// trip those rules. A backslash escapes the next character inside, as in TeX.
+    private func math(at pos: Int) -> INode? {
+        let n = buf.count
+        func node(_ display: Bool, open: Int, close: Int, width: Int) -> INode {
+            let node = INode(.math(display: display), pos, close + width)
+            node.markers = [NSRange(location: pos, length: open), NSRange(location: close, length: width)]
+            return node
+        }
+        if pos + 1 < n, buf[pos + 1] == C.backtick {
+            var q = pos + 2
+            while q + 1 < n, !(buf[q] == C.backtick && buf[q + 1] == C.dollar) { q += 1 }
+            guard q + 1 < n, q > pos + 2 else { return nil }
+            return node(false, open: 2, close: q, width: 2)
+        }
+        let display = pos + 1 < n && buf[pos + 1] == C.dollar
+        let start = pos + (display ? 2 : 1)
+        guard start < n else { return nil }
+        if !display, C.isWhitespace(buf[start]) { return nil }
+        var q = start
+        while q < n {
+            let c = buf[q]
+            if c == C.backslash { q += 2; continue }
+            if c == C.dollar {
+                if display {
+                    if q + 1 < n, buf[q + 1] == C.dollar {
+                        return q > start ? node(true, open: 2, close: q, width: 2) : nil
+                    }
+                } else if q + 1 < n, buf[q + 1] == C.dollar {
+                    q += 2; continue
+                } else if q > start, !C.isWhitespace(buf[q - 1]), !(q + 1 < n && C.isDigit(buf[q + 1])) {
+                    return node(false, open: 1, close: q, width: 1)
+                }
+            }
+            q += 1
         }
         return nil
     }

@@ -13,9 +13,11 @@ let package = Package(
         // Pure Swift. Never imports AppKit — keeps the parser testable in seconds, headless.
         .target(name: "MarkdownKit"),
         // AppKit/TextKit 2: decoration, reveal policy, layout fragments, text view.
-        // Mermaid 11.4.1 (MIT) renders ```mermaid blocks in a hidden WebKit view.
+        // Mermaid 11.4.1 (MIT) renders ```mermaid blocks in a hidden WebKit view; MathJax 3.2.2
+        // (Apache 2.0, built by tools/build-mathjax.sh) typesets TeX in JavaScriptCore.
         .target(name: "DownrightEditor", dependencies: ["MarkdownKit"],
-                resources: [.copy("Resources/mermaid.min.js"), .copy("Resources/mermaid-LICENSE.txt")]),
+                resources: [.copy("Resources/mermaid.min.js"), .copy("Resources/mermaid-LICENSE.txt"),
+                            .copy("Resources/mathjax-tex-svg.js"), .copy("Resources/mathjax-LICENSE.txt")]),
         // Pure Swift: the settings file format (a small TOML subset).
         .target(name: "DownrightConfig"),
         .testTarget(name: "MarkdownKitTests", dependencies: ["MarkdownKit"]),

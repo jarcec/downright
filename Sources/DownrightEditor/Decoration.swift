@@ -86,6 +86,8 @@ public struct ParagraphDecoration {
     /// Overrides `lineHeightMultiple` while concealed: a line showing an image must not
     /// multiply the image's height into blank space.
     public var concealedLineHeightMultiple: CGFloat? = nil
+    /// Alignment while concealed (a display formula is centred; its source is not).
+    public var concealedAlignment: NSTextAlignment? = nil
     public var role: BlockRole = .none
     /// Clickable task checkbox on this line, if any.
     public var task: (range: NSRange, checked: Bool)?

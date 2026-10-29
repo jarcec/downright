@@ -66,6 +66,7 @@ public final class MarkdownContentStorageDelegate: NSObject, @preconcurrency NST
         ps.firstLineHeadIndent = d.firstLineHeadIndent
         ps.paragraphSpacingBefore = d.spacingBefore
         ps.paragraphSpacing = d.spacingAfter
+        if !revealed, let alignment = d.concealedAlignment { ps.alignment = alignment }
         out.addAttribute(.paragraphStyle, value: ps, range: NSRange(location: 0, length: out.length))
 
         assert(out.length == range.length, "display paragraph must be length-identical to its source (M0)")

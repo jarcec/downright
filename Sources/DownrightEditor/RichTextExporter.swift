@@ -99,6 +99,14 @@ public enum RichTextExporter {
                     }
                 case .html:
                     out.append(NSAttributedString(string: src.substring(with: n.range), attributes: attrs))
+                case .math(let display):
+                    let f = attrs[.font] as? NSFont ?? theme.bodyFont
+                    let tex = n.markerRanges.count == 2 ? src.substring(with: NSRange(n.markerRanges[0].end, to: n.markerRanges[1].location)) : ""
+                    if case .rendered(let formula) = MathRenderer.shared.formula(tex, display: display, color: theme.textColor, fontSize: f.pointSize) {
+                        out.append(attachment(formula.image, descent: formula.descent, attrs: attrs))
+                    } else {
+                        out.append(NSAttributedString(string: src.substring(with: n.range), attributes: attrs))
+                    }
                 case .footnoteReference(let label):
                     var a = attrs
                     let f = attrs[.font] as? NSFont ?? theme.bodyFont
@@ -106,6 +114,18 @@ public enum RichTextExporter {
                     out.append(NSAttributedString(string: label, attributes: a))
                 }
             }
+        }
+
+        /// A picture standing in the text, `descent` below the baseline.
+        func attachment(_ image: NSImage, descent: CGFloat = 0, attrs: [NSAttributedString.Key: Any]) -> NSAttributedString {
+            var size = image.size
+            if size.width > maxImageWidth { size = CGSize(width: maxImageWidth, height: size.height * maxImageWidth / size.width) }
+            let a = NSTextAttachment()
+            a.image = image
+            a.bounds = CGRect(x: 0, y: -descent, width: size.width, height: size.height)
+            var attrs = attrs
+            attrs[.attachment] = a
+            return NSAttributedString(string: "\u{FFFC}", attributes: attrs)
         }
 
         /// Text of a node with its markers stripped (code spans).
@@ -162,6 +182,20 @@ public enum RichTextExporter {
                         render(rest, indent: indent + CGFloat(listDepth) * 20)
                     }
                     listDepth -= 1
+                case .fencedCode(_, _, let info) where MathRenderer.isMath(info: info):
+                    let tex = lineText(b.contentRanges)
+                    if case .rendered(let formula) = MathRenderer.shared.formula(tex, display: true, color: theme.textColor, fontSize: theme.bodySize) {
+                        var attrs = base(theme.bodyFont, indent: indent)
+                        let ps = (attrs[.paragraphStyle] as! NSParagraphStyle).mutableCopy() as! NSMutableParagraphStyle
+                        ps.alignment = .center
+                        attrs[.paragraphStyle] = ps
+                        out.append(attachment(formula.image, attrs: attrs))
+                        out.append(NSAttributedString(string: "\n", attributes: attrs))
+                    } else {
+                        var a = base(theme.monoFont, indent: indent)
+                        a[.backgroundColor] = theme.codeBlockBackground
+                        out.append(NSAttributedString(string: tex + "\n", attributes: a))
+                    }
                 case .fencedCode(_, _, let info) where DiagramRenderer.isDiagram(info: info):
                     let source = lineText(b.contentRanges)
                     if let image = diagram?(source, theme) {
