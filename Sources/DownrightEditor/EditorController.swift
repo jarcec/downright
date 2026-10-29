@@ -69,7 +69,7 @@ public final class EditorController: NSObject, NSTextViewDelegate, @preconcurren
     }
 
     private func rebuildEngine() {
-        engine = DecorationEngine(document: document, lines: lines, theme: theme, sourceMode: mode == .raw, images: images, baseURL: baseURL, diagrams: diagrams, math: .shared)
+        engine = DecorationEngine(document: document, lines: lines, theme: theme, sourceMode: mode == .raw, images: images, baseURL: baseURL, diagrams: diagrams, math: .shared, links: .shared)
         engine.setColumnWidth(textContainer.size.width)
         engine.tableChromeRoom = mode == .live
         pruneFolds()
@@ -460,7 +460,7 @@ public final class EditorController: NSObject, NSTextViewDelegate, @preconcurren
         let text = textStorage.string
         self.document = MarkdownParser.parse(text, dialect: .gfm)
         self.lines = LineIndex(text)
-        self.engine = DecorationEngine(document: document, lines: lines, theme: theme, images: images, diagrams: diagrams, math: .shared)
+        self.engine = DecorationEngine(document: document, lines: lines, theme: theme, images: images, diagrams: diagrams, math: .shared, links: .shared)
         engine.tableChromeRoom = true   // starts in Live
 
         let container = TableScrollingTextContainer(size: CGSize(width: 0, height: CGFloat.greatestFiniteMagnitude))
@@ -970,20 +970,13 @@ public final class EditorController: NSObject, NSTextViewDelegate, @preconcurren
     @discardableResult
     public func scroll(toHeading anchor: String) -> Bool {
         let wanted = Self.slug(anchor.removingPercentEncoding ?? anchor)
-        guard let h = headings().first(where: { Self.slug($0.title) == wanted }) else { return false }
+        guard let h = engine.anchors.first(where: { $0.slug == wanted }) else { return false }
         scroll(to: h.offset)
         return true
     }
 
     /// GitHub-style heading anchor: lowercased, punctuation dropped, spaces to hyphens.
-    static func slug(_ title: String) -> String {
-        var out = ""
-        for ch in title.lowercased() {
-            if ch == " " || ch == "-" { out.append("-") }
-            else if ch.isLetter || ch.isNumber || ch == "_" { out.append(ch) }
-        }
-        return out
-    }
+    static func slug(_ title: String) -> String { Document.slug(title) }
 
     // MARK: - NSTextLayoutManagerDelegate
 

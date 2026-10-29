@@ -16,6 +16,11 @@ public final class MarkdownTextView: NSTextView {
         super.keyDown(with: event)
     }
 
+    public override func insertText(_ string: Any, replacementRange: NSRange) {
+        super.insertText(string, replacementRange: replacementRange)
+        if let typed = (string as? String) ?? (string as? NSAttributedString)?.string { offerLinkCompletion(after: typed) }
+    }
+
     // MARK: - Block cursor in vim normal/command mode
 
     // macOS 14+ draws the insertion point with NSTextInsertionIndicator, so

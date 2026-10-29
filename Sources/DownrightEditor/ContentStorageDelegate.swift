@@ -95,6 +95,8 @@ public final class MarkdownContentStorageDelegate: NSObject, @preconcurrency NST
             out.addAttribute(.link, value: url, range: rel)
         case .strikethrough:
             out.addAttribute(.strikethroughStyle, value: NSUnderlineStyle.single.rawValue, range: rel)
+        case .underline(let style, let color):
+            out.addAttributes([.underlineStyle: style.rawValue, .underlineColor: color], range: rel)
         case .baselineOffset(let v):
             out.addAttribute(.baselineOffset, value: v, range: rel)
         case .kern(let v):

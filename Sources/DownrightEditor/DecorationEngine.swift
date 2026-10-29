@@ -19,6 +19,10 @@ public final class DecorationEngine {
     public let diagrams: DiagramRenderer?
     /// Typesets `$…$`, `$$…$$` and ```math; nil leaves them as source.
     public let math: MathRenderer?
+    /// Checks where links lead, to mark the ones that lead nowhere; nil checks nothing.
+    public let links: LinkTargets?
+    /// This document's headings, as links name them.
+    public private(set) lazy var anchors: [HeadingAnchor] = document.headingAnchors()
     /// Lines inside folded sections (set by the controller before decorations are built).
     public var hiddenLines: Set<Int> = [] { didSet { cache.removeAll() } }
     /// Live editing: keep room under every table for its "New row" strip.
@@ -392,13 +396,14 @@ public final class DecorationEngine {
     }
 
     public init(document: Document, lines: LineIndex, theme: Theme, sourceMode: Bool = false, images: ImageLoader? = nil, baseURL: URL? = nil,
-                diagrams: DiagramRenderer? = nil, math: MathRenderer? = nil) {
+                diagrams: DiagramRenderer? = nil, math: MathRenderer? = nil, links: LinkTargets? = nil) {
         self.document = document
         self.lines = lines
         self.theme = theme
         self.sourceMode = sourceMode
         self.diagrams = diagrams
         self.math = math
+        self.links = links
         self.images = images
         self.baseURL = baseURL
         self.spaceWidth = theme.spaceWidth
@@ -421,7 +426,7 @@ public final class DecorationEngine {
         out.styles = [StyleRun(pr, .font(theme.monoFont)), StyleRun(pr, .foreground(theme.textColor))]
         for run in d.styles {
             switch run.op {
-            case .foreground, .link, .strikethrough, .toolTip: out.styles.append(run)
+            case .foreground, .link, .strikethrough, .toolTip, .underline: out.styles.append(run)
             default: break
             }
         }
@@ -767,9 +772,17 @@ public final class DecorationEngine {
                     d.styles.append(StyleRun(r, .mono))
                     d.styles.append(StyleRun(r, .background(theme.codeBackground)))
                 case .link(let dest, let title):
-                    if let url = Self.linkURL(dest, baseURL: baseURL) { d.styles.append(StyleRun(r, .link(url))) }
+                    var tip = title.map { "\($0) — \(dest)" } ?? dest
+                    if let url = Self.linkURL(dest, baseURL: baseURL) {
+                        d.styles.append(StyleRun(r, .link(url)))
+                        // A link that leads nowhere is still a link, underlined to say so.
+                        if let problem = links?.problem(with: url, anchors: anchors) {
+                            d.styles.append(StyleRun(r, .underline(.single.union(.patternDot), theme.color(for: .removed))))
+                            tip = "\(tip)\n\(problem)"
+                        }
+                    }
                     d.styles.append(StyleRun(r, .foreground(theme.accentColor)))
-                    d.styles.append(StyleRun(r, .toolTip(title.map { "\($0) — \(dest)" } ?? dest)))
+                    d.styles.append(StyleRun(r, .toolTip(tip)))
                 case .autolink(let dest):
                     if let url = Self.linkURL(dest, baseURL: baseURL) { d.styles.append(StyleRun(r, .link(url))) }
                     d.styles.append(StyleRun(r, .foreground(theme.accentColor)))

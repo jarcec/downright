@@ -10,6 +10,8 @@ public enum StyleOp {
     case background(NSColor)
     case link(URL)
     case strikethrough
+    /// A link that leads nowhere: dotted, in a warning colour.
+    case underline(NSUnderlineStyle, NSColor)
     case baselineOffset(CGFloat)
     /// Extra advance after the glyph; tables use it on concealed separators to pad columns.
     case kern(CGFloat)
