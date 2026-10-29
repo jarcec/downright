@@ -1000,6 +1000,7 @@ public final class EditorController: NSObject, NSTextViewDelegate, @preconcurren
         fragment.quoteDepth = d.quoteDepth
         fragment.quoteTop = d.quoteTop
         fragment.quoteBottom = d.quoteBottom
+        fragment.quoteTint = d.quoteAlert.map { theme.alertColor($0) }
         fragment.listGuides = d.listGuides
         if case .tableRow = d.role {
             fragment.tableScroll = engine.tableScroll(containing: offset)

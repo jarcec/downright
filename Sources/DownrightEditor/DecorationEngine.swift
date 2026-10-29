@@ -411,6 +411,10 @@ public final class DecorationEngine {
                 if quoteDepth == 1 {
                     d.quoteTop = li == lines.line(containing: block.range.location)
                     d.quoteBottom = li == lines.line(containing: max(block.range.location, block.range.end - 1))
+                    if !sourceMode, let alert = block.alert(in: document.sourceString as NSString) {
+                        d.quoteAlert = alert.kind
+                        if cr.contains(alert.marker.location) { alertTitle(alert.kind, marker: alert.marker, into: &d) }
+                    }
                 }
                 for m in block.markerRanges where cr.contains(m.location) {
                     d.conceal.append(m)
@@ -467,6 +471,51 @@ public final class DecorationEngine {
         guard let leaf = path.last, !leaf.isContainer else { return d }
         leafStyles(leaf, line: li, pr: pr, cr: cr, into: &d)
         return d
+    }
+
+    /// An alert's `[!WARNING]` line reads as its title: the `[` carries the alert's icon,
+    /// `!` and `]` hide, and the name shows in title case (same-length substitutions),
+    /// bold in the alert's colour. Revealed, the marker is plain source again.
+    private func alertTitle(_ kind: AlertKind, marker m: NSRange, into d: inout ParagraphDecoration) {
+        let color = theme.alertColor(kind)
+        let name = NSRange(location: m.location + 2, length: m.length - 3)
+        d.styles.append(StyleRun(name, .traits(.bold)))
+        d.styles.append(StyleRun(name, .foreground(color)))
+        for r in [NSRange(location: m.location, length: 2), NSRange(location: m.end - 1, length: 1)] {
+            d.markerStyles.append(StyleRun(r, .foreground(theme.markerColor)))
+        }
+        let font = theme.bodyFont
+        let icon = Self.alertIcon(kind, color: color, pointSize: theme.bodySize)
+        let attachment = NSTextAttachment()
+        attachment.image = icon
+        attachment.bounds = CGRect(x: 0, y: ((font.capHeight - icon.size.height) / 2).rounded(), width: icon.size.width, height: icon.size.height)
+        attachment.allowsTextAttachmentView = false
+        let first = NSRange(location: m.location, length: 1)
+        d.substitutions.append((m.location, 0xFFFC))
+        d.concealedStyles.append(StyleRun(first, .font(font)))
+        d.concealedStyles.append(StyleRun(first, .attachment(attachment)))
+        d.conceal.append(NSRange(location: m.location + 1, length: 1))
+        d.conceal.append(NSRange(location: m.end - 1, length: 1))
+        let s = document.sourceString as NSString
+        for i in (name.location + 1)..<max(name.location + 1, name.end) {
+            let ch = s.character(at: i)
+            if ch >= 65 && ch <= 90 { d.substitutions.append((i, ch + 32)) }
+        }
+    }
+
+    /// The alert's symbol in its colour, with room after it before the title.
+    private static func alertIcon(_ kind: AlertKind, color: NSColor, pointSize: CGFloat) -> NSImage {
+        let config = NSImage.SymbolConfiguration(pointSize: pointSize * 0.95, weight: .semibold).applying(.init(paletteColors: [color]))
+        guard let symbol = NSImage(systemSymbolName: Theme.alertSymbol(kind), accessibilityDescription: kind.title)?.withSymbolConfiguration(config) else {
+            return NSImage(size: NSSize(width: 1, height: 1))
+        }
+        let gap = (pointSize * 0.4).rounded()
+        let image = NSImage(size: NSSize(width: ceil(symbol.size.width) + gap, height: ceil(symbol.size.height)), flipped: false) { _ in
+            symbol.draw(in: NSRect(origin: .zero, size: symbol.size))
+            return true
+        }
+        image.accessibilityDescription = kind.title
+        return image
     }
 
     /// Visible column of `offset` on its own line. Block-quote markers are concealed and

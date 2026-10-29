@@ -134,7 +134,16 @@ public enum RichTextExporter {
                     appendInlines(b.inlines, attrs: base(theme.bodyFont, indent: indent))
                     out.append(NSAttributedString(string: "\n"))
                 case .blockQuote:
-                    render(b.children, indent: indent + 24)
+                    guard let alert = b.alert(in: src) else { render(b.children, indent: indent + 24); continue }
+                    // An alert: its title in its colour, then the quote without the marker line.
+                    var title = base(theme.bodyFont.adding(.bold), indent: indent + 24, spacingAfter: 2)
+                    title[.foregroundColor] = theme.alertColor(alert.kind)
+                    out.append(NSAttributedString(string: alert.kind.title + "\n", attributes: title))
+                    var children = b.children
+                    var first = children.removeFirst()
+                    first.inlines = Array(first.inlines.drop { $0.range.location < alert.marker.end || $0.kind.isSoftBreak })
+                    if !first.inlines.isEmpty { children.insert(first, at: 0) }
+                    render(children, indent: indent + 24)
                 case .list(let ordered, _, let start):
                     listDepth += 1
                     for (i, item) in b.children.enumerated() {
@@ -224,4 +233,8 @@ public enum RichTextExporter {
         if out.string.hasSuffix("\n") { out.deleteCharacters(in: NSRange(location: out.length - 1, length: 1)) }
         return out
     }
+}
+
+private extension Inline.Kind {
+    var isSoftBreak: Bool { switch self { case .softBreak, .hardBreak: return true; default: return false } }
 }

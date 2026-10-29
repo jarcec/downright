@@ -72,6 +72,8 @@ public struct ParagraphDecoration {
     /// corners of the quote background).
     public var quoteTop = false
     public var quoteBottom = false
+    /// The outermost quote is a GitHub alert: tinted in the alert's colour.
+    public var quoteAlert: AlertKind?
     /// Nested-list indent guides: one vertical line per ancestor list item whose sub-list
     /// this line is in, at x (from the column's left edge) under that item's bullet.
     public var listGuides: [CGFloat] = []

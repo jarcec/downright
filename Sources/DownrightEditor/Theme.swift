@@ -1,4 +1,5 @@
 import AppKit
+import MarkdownKit
 
 /// Every colour the editor draws with. A theme is a value for each of these; nothing in
 /// the editor reaches for a system colour on its own, so a theme fully describes the page.
@@ -360,6 +361,29 @@ public struct Theme: @unchecked Sendable, Equatable {
     public var rule: NSColor { palette[.rule] }
     /// Vertical guides joining the items of a nested list.
     public var listGuide: NSColor { palette[.rule] }
+
+    /// A GitHub alert's colour, taken from hues the palette already has so Custom themes
+    /// follow: links' blue for a note, the code greens, purples, oranges and reds.
+    public func alertColor(_ kind: AlertKind) -> NSColor {
+        switch kind {
+        case .note: return accentColor
+        case .tip: return palette[.codeAdded]
+        case .important: return palette[.codeKeyword]
+        case .warning: return palette[.codeVariable]
+        case .caution: return palette[.codeRemoved]
+        }
+    }
+
+    /// The SF Symbol on an alert's title line.
+    public static func alertSymbol(_ kind: AlertKind) -> String {
+        switch kind {
+        case .note: return "info.circle"
+        case .tip: return "lightbulb"
+        case .important: return "exclamationmark.bubble"
+        case .warning: return "exclamationmark.triangle"
+        case .caution: return "exclamationmark.octagon"
+        }
+    }
 
     /// Code highlighting palette.
     public func color(for token: CodeToken) -> NSColor {

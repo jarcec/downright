@@ -16,6 +16,8 @@ final class DecoratedLayoutFragment: NSTextLayoutFragment {
     var quoteDepth = 0
     var quoteTop = false
     var quoteBottom = false
+    /// A GitHub alert's colour: the quote's ground is a wash of it and its bar is it.
+    var quoteTint: NSColor?
     var listGuides: [CGFloat] = []
     var theme = Theme()
     /// Table rows: how far their table is scrolled sideways (the layout is shifted by it).
@@ -131,14 +133,17 @@ final class DecoratedLayoutFragment: NSTextLayoutFragment {
             // Tinted, rounded background like a code block, with a bar per nesting level.
             // The whole quote is clipped to one rounded shape so the outer bar's corners
             // round with the background.
-            let rect = CGRect(x: lineRect.minX - 6, y: lineRect.minY, width: width + 12, height: height)
+            // Opaque, so the sliver where two lines' fills meet cannot show as a seam.
+            let rect = Self.joined(CGRect(x: lineRect.minX - 6, y: lineRect.minY, width: width + 12, height: height), top: quoteTop, bottom: quoteBottom)
             roundedClip(rect, top: quoteTop, bottom: quoteBottom, radius: 6, in: context)
-            context.setFillColor(theme.quoteBackground.cgColor)
+            var ground = Self.composite(theme.quoteBackground, over: theme.backgroundColor)
+            if let tint = quoteTint { ground = Self.composite(tint.withAlphaComponent(0.11), over: ground) }
+            context.setFillColor(ground.cgColor)
             context.fill(rect)
-            context.setFillColor(theme.quoteBar.cgColor)
             for i in 0..<quoteDepth {
                 let x = i == 0 ? rect.minX : lineRect.minX + CGFloat(i) * theme.quoteIndent + 3
-                context.fill(CGRect(x: x, y: lineRect.minY, width: i == 0 ? 4 : 3, height: height))
+                context.setFillColor((i == 0 ? quoteTint : nil)?.cgColor ?? theme.quoteBar.cgColor)
+                context.fill(CGRect(x: x, y: rect.minY, width: i == 0 ? 4 : 3, height: rect.height))
             }
         }
         if !listGuides.isEmpty {
@@ -212,8 +217,27 @@ final class DecoratedLayoutFragment: NSTextLayoutFragment {
         context.restoreGState()
     }
 
+    /// A block is drawn a line at a time, and line heights are fractional: rounding the
+    /// edges a line shares with its neighbours out to whole points makes the two fills
+    /// overlap instead of leaving a half-covered pixel row between them.
+    private static func joined(_ rect: CGRect, top: Bool, bottom: Bool) -> CGRect {
+        var r = rect
+        if !top { r.origin.y = floor(rect.minY); r.size.height = rect.maxY - r.minY }
+        if !bottom { r.size.height = ceil(r.maxY) - r.minY }
+        return r
+    }
+
+    /// `color` laid over `ground`, as one opaque colour.
+    private static func composite(_ color: NSColor, over ground: NSColor) -> NSColor {
+        guard let c = color.usingColorSpace(.sRGB), let g = ground.usingColorSpace(.sRGB) else { return color }
+        let a = c.alphaComponent
+        return NSColor(srgbRed: c.redComponent * a + g.redComponent * (1 - a), green: c.greenComponent * a + g.greenComponent * (1 - a),
+                       blue: c.blueComponent * a + g.blueComponent * (1 - a), alpha: 1)
+    }
+
     private func fill(_ rect: CGRect, color: NSColor, top: Bool, bottom: Bool, radius: CGFloat, in ctx: CGContext) {
-        ctx.setFillColor(color.cgColor)
+        let rect = Self.joined(rect, top: top, bottom: bottom)
+        ctx.setFillColor(Self.composite(color, over: theme.backgroundColor).cgColor)
         if !top && !bottom {
             ctx.fill(rect); return
         }
