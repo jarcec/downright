@@ -558,6 +558,7 @@ public final class EditorController: NSObject, NSTextViewDelegate, @preconcurren
 
     private func replaceDocument(with doc: Document) {
         document = doc
+        cachedProseRuns = nil
         lines = LineIndex(textStorage.string)
         rebuildEngine()
         // Carry the caret's table cell into the new engine so widths stay right while typing.
@@ -850,20 +851,32 @@ public final class EditorController: NSObject, NSTextViewDelegate, @preconcurren
 
     public struct Statistics: Equatable {
         public var lines: Int
+        /// Words and characters of the text as it reads (see `ProseCounts`), not its syntax.
         public var words: Int
         public var characters: Int
+        public var readingMinutes: Int { ProseCounts.readingMinutes(words: words) }
         public init(lines: Int, words: Int, characters: Int) { self.lines = lines; self.words = words; self.characters = characters }
     }
 
-    /// Whole-document counts. O(n); called after each reparse, not per keystroke.
-    public func statistics() -> Statistics {
-        var words = 0
-        var inWord = false
-        for u in textStorage.string.utf16 {
-            let ws = u == 32 || u == 10 || u == 9 || u == 13 || u == 0xA0
-            if ws { inWord = false } else if !inWord { inWord = true; words += 1 }
+    /// The document's shown text, worked out once per parse.
+    private var proseRuns: [[NSRange]] {
+        if let cached = cachedProseRuns { return cached }
+        let runs = document.proseRuns()
+        cachedProseRuns = runs
+        return runs
+    }
+    private var cachedProseRuns: [[NSRange]]?
+
+    /// Counts for the whole document, or for `range` only (a selection). O(n); called
+    /// after each reparse and on selection changes.
+    public func statistics(in range: NSRange? = nil) -> Statistics {
+        let counts = Document.counts(of: proseRuns, in: textStorage.string as NSString, within: range)
+        var lineCount = lines.lineCount
+        if let range {
+            let last = lines.line(containing: max(range.location, range.end - 1))
+            lineCount = last - lines.line(containing: range.location) + 1
         }
-        return Statistics(lines: lines.lineCount, words: words, characters: textStorage.length)
+        return Statistics(lines: lineCount, words: counts.words, characters: counts.characters)
     }
 
     /// 1-based caret line and column (UTF-16 units from the line start).

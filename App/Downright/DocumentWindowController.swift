@@ -434,7 +434,18 @@ final class DocumentWindowController: NSWindowController, NSWindowDelegate {
         let pos = editor.caretPosition()
         let f = NumberFormatter(); f.numberStyle = .decimal
         func n(_ v: Int) -> String { f.string(from: NSNumber(value: v)) ?? "\(v)" }
-        var text = "Ln \(pos.line), Col \(pos.column)   ·   \(n(stats.lines)) lines   \(n(stats.words)) words   \(n(stats.characters)) chars"
+        // A selection counts itself against the whole: "42 of 1,234 words".
+        let sel = editor.textView.selectedRange()
+        let part = sel.length > 0 ? editor.statistics(in: sel) : nil
+        func count(_ whole: Int, _ selected: Int?, _ noun: String) -> String {
+            (selected.map { "\(n($0)) of " } ?? "") + "\(n(whole)) \(noun)"
+        }
+        var text = "Ln \(pos.line), Col \(pos.column)   ·   " + [
+            count(stats.lines, part?.lines, stats.lines == 1 ? "line" : "lines"),
+            count(stats.words, part?.words, stats.words == 1 ? "word" : "words"),
+            count(stats.characters, part?.characters, "chars"),
+        ].joined(separator: "   ")
+        if stats.words > 0 { text += "   ·   \(stats.readingMinutes) min read" }
         let vim = editor.textView.vim
         if vim.isEnabled { text = vim.statusText + "   ·   " + text }
         statusBar.leadingText = text
