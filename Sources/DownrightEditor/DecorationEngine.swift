@@ -457,7 +457,7 @@ public final class DecorationEngine {
 
         let path = document.path(containing: pr.location)
         guard !path.isEmpty else {
-            // Blank line hugging a heading, table or block quote: draw it compact (unless the
+            // Blank line hugging a heading, table, thematic break or block quote: draw it compact (unless the
             // caret is on it), so the customary empty lines around them don't read as double
             // spacing.
             if isBlank(cr), hugsCompactNeighbor(li - 1) || hugsCompactNeighbor(li + 1) {
@@ -629,13 +629,13 @@ public final class DecorationEngine {
     }
 
     /// Does `line` belong to a block whose surrounding blank lines are drawn compact:
-    /// a heading (ATX line, or setext text/underline), a table, or a block quote?
+    /// a heading (ATX line, or setext text/underline), a table, a thematic break, or a block quote?
     private func hugsCompactNeighbor(_ line: Int) -> Bool {
         guard line >= 0, line < lines.lineCount else { return false }
         let path = document.path(containing: lines.lineStarts[line])
         guard let b = path.last else { return false }
         if path.contains(where: { if case .blockQuote = $0.kind { return true } else { return false } }) { return true }
-        switch b.kind { case .heading, .setextHeading, .table: return true; default: return false }
+        switch b.kind { case .heading, .setextHeading, .table, .thematicBreak: return true; default: return false }
     }
 
     private func leafStyles(_ leaf: Block, line li: Int, pr: NSRange, cr: NSRange, into d: inout ParagraphDecoration) {

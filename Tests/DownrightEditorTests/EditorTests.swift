@@ -378,6 +378,22 @@ final class CompactBlankLineTests: XCTestCase {
         XCTAssertLessThan(h[4]!, h[6]! * 0.6, "blank after quote is compact")
         XCTAssertGreaterThan(h[6]!, 15, "ordinary blank line keeps full height")
     }
+
+    func testBlankLinesAroundThematicBreaksAreCompact() {
+        let s = NSTextStorage(string: "para\n\n---\n\nbody\n\nmore\n")
+        //                              0 para,1 blank(before HR),2 ---,3 blank(after HR),4 body,5 blank(plain),6 more
+        let c = EditorController(textStorage: s)
+        c.layoutManager.textContainer?.size = CGSize(width: 600, height: 1e7)
+        c.textView.setSelectedRange(NSRange(location: 0, length: 0))
+        var h: [Int: CGFloat] = [:]
+        c.layoutManager.enumerateTextLayoutFragments(from: c.layoutManager.documentRange.location, options: [.ensuresLayout]) { f in
+            let loc = c.contentStorage.offset(from: c.contentStorage.documentRange.location, to: f.textElement!.elementRange!.location)
+            h[c.lines.line(containing: loc)] = f.layoutFragmentFrame.height; return true
+        }
+        XCTAssertLessThan(h[1]!, h[5]! * 0.6, "blank before thematic break is compact: \(h)")
+        XCTAssertLessThan(h[3]!, h[5]! * 0.6, "blank after thematic break is compact")
+        XCTAssertGreaterThan(h[5]!, 15, "ordinary blank line keeps full height")
+    }
 }
 
 @MainActor
